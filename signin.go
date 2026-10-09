@@ -74,13 +74,18 @@ func (a *app) discover(ctx context.Context, origin string) (*serverMetadata, err
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.http.Do(req)
+	client := *a.http
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("asking %s how to sign in: %w", origin, err)
 	}
 	defer a.closeBody(resp)
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
+	}
+	if location := resp.Header.Get("Location"); location != "" {
+		return nil, fmt.Errorf("%s answered the question of how to sign in with a redirect to %s; a server that takes no sign-in answers 404 there, so this one may be older than wlget expects", address, location)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, refusal(http.MethodGet, address, resp)

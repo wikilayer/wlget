@@ -21,22 +21,23 @@ import (
 
 type fakeServer struct {
 	*httptest.Server
-	t          *testing.T
-	signIn     bool
-	mu         sync.Mutex
-	clients    map[string]string
-	codes      map[string]string
-	access     map[string]bool
-	refresh    map[string]bool
-	issued     int
-	keepAccess bool
-	lastAccess string
-	signIns    atomic.Int32
-	refreshes  atomic.Int32
-	pages      map[string]string
-	chatPages  []string
-	chatAsked  atomic.Int32
-	chatStatus int
+	t                  *testing.T
+	signIn             bool
+	discoveryRedirects bool
+	mu                 sync.Mutex
+	clients            map[string]string
+	codes              map[string]string
+	access             map[string]bool
+	refresh            map[string]bool
+	issued             int
+	keepAccess         bool
+	lastAccess         string
+	signIns            atomic.Int32
+	refreshes          atomic.Int32
+	pages              map[string]string
+	chatPages          []string
+	chatAsked          atomic.Int32
+	chatStatus         int
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -61,7 +62,11 @@ func newFakeServer(t *testing.T) *fakeServer {
 	return f
 }
 
-func (f *fakeServer) metadata(w http.ResponseWriter, _ *http.Request) {
+func (f *fakeServer) metadata(w http.ResponseWriter, r *http.Request) {
+	if f.discoveryRedirects {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
 	if !f.signIn {
 		http.NotFound(w, nil)
 		return
@@ -327,6 +332,19 @@ func TestGet_ReadsAServerThatTakesNoSignIn(t *testing.T) {
 
 	assert.Equal(t, "# Notes\n", h.stdout.String())
 	assert.Zero(t, h.opened.Load(), "a server of your own on this computer has nobody to sign in")
+}
+
+func TestGet_NamesAServerThatRedirectsTheSignInQuestion(t *testing.T) {
+	server := newFakeServer(t)
+	server.discoveryRedirects = true
+	h := newHarness(t)
+
+	err := h.get(t, server.URL+"/me/notes")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "redirect",
+		"followed, the redirect lands on the front page and the reader is told the HTML did not parse, which says nothing of what went wrong")
+	assert.Zero(t, h.opened.Load())
 }
 
 func TestGet_FollowsARenamedPage(t *testing.T) {
