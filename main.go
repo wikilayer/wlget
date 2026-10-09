@@ -75,7 +75,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer stop()
 
 	if *logout {
-		err = a.logout(flags.Arg(0))
+		err = a.logout(ctx, flags.Arg(0))
 	} else {
 		err = a.get(ctx, flags.Arg(0))
 	}

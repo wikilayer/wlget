@@ -3,11 +3,14 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -77,12 +80,14 @@ func (a *app) get(ctx context.Context, raw string) error {
 	}
 }
 
-func (a *app) logout(raw string) error {
+func (a *app) logout(ctx context.Context, raw string) error {
 	t, err := resolve(raw)
 	if err != nil {
 		return err
 	}
-	return a.store.remove(t.origin())
+	return a.locked(ctx, t.origin(), func() error {
+		return a.store.remove(t.origin())
+	})
 }
 
 func hasMessages(body []byte) (bool, error) {
@@ -180,34 +185,50 @@ func backoff(attempt int) time.Duration {
 }
 
 func (s *session) fetch(ctx context.Context, t target) ([]byte, error) {
-	resp, err := s.request(ctx, t)
+	resp, err := s.send(ctx, t)
 	if err != nil {
-		var refused notTheDocument
-		var unreachable *url.Error
-		if ctx.Err() == nil && !errors.As(err, &refused) && errors.As(err, &unreachable) {
-			return nil, transientError{err}
-		}
 		return nil, err
-	}
-	switch resp.StatusCode {
-	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		defer s.app.closeBody(resp)
-		return nil, transientError{refusal(http.MethodGet, t.url.String(), resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized && s.creds != nil {
 		s.app.closeBody(resp)
 		if err := s.replaceRefused(ctx, s.creds.Token.AccessToken); err != nil {
 			return nil, err
 		}
-		if resp, err = s.request(ctx, t); err != nil {
+		if resp, err = s.send(ctx, t); err != nil {
 			return nil, err
 		}
 	}
 	defer s.app.closeBody(resp)
-	if resp.StatusCode != http.StatusOK {
-		return nil, refusal(http.MethodGet, t.url.String(), resp)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return io.ReadAll(resp.Body)
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return nil, transientError{refusal(http.MethodGet, t.url.String(), resp)}
 	}
-	return io.ReadAll(resp.Body)
+	return nil, refusal(http.MethodGet, t.url.String(), resp)
+}
+
+func (s *session) send(ctx context.Context, t target) (*http.Response, error) {
+	resp, err := s.request(ctx, t)
+	if err != nil && ctx.Err() == nil && worthRetrying(err) {
+		return nil, transientError{err}
+	}
+	return resp, err
+}
+
+func worthRetrying(err error) bool {
+	var unreachable *url.Error
+	var refused notTheDocument
+	var unknownHost *net.DNSError
+	var untrusted *tls.CertificateVerificationError
+	var misnamed x509.HostnameError
+	switch {
+	case !errors.As(err, &unreachable), errors.As(err, &refused), errors.As(err, &untrusted), errors.As(err, &misnamed):
+		return false
+	case errors.As(err, &unknownHost):
+		return !unknownHost.IsNotFound
+	}
+	return true
 }
 
 func (s *session) request(ctx context.Context, t target) (*http.Response, error) {

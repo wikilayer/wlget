@@ -185,14 +185,14 @@ func (f *fakeServer) page(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeServer) chat(w http.ResponseWriter, r *http.Request) {
+	if !f.authorized(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_token"})
+		return
+	}
 	if f.unavailable.Add(-1) >= 0 {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte("<html>502 Bad Gateway</html>"))
-		return
-	}
-	if !f.authorized(r) {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_token"})
 		return
 	}
 	if f.chatStatus != 0 {
@@ -462,6 +462,73 @@ func TestGet_WaitsOutAServerThatIsRestarting(t *testing.T) {
 	assert.JSONEq(t, `{"messages":[{"seq":8}],"latest_seq":8,"has_more":false}`, h.stdout.String())
 }
 
+func TestGet_WaitsOutARestartRightAfterSigningInAgain(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{`{"messages":[{"seq":8}],"latest_seq":8,"has_more":false}`}
+	h := newHarness(t)
+	h.app.pause = func(int) time.Duration { return time.Millisecond }
+	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"))
+	h.stdout.Reset()
+	server.revokeAll()
+	server.unavailable.Store(1)
+
+	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"),
+		"the request made with the new sign-in met the same deploy, and only the first request was ever retried")
+	assert.Contains(t, h.stderr.String(), "trying again")
+}
+
+func TestGet_DoesNotRetryANameThatDoesNotExist(t *testing.T) {
+	h := newHarness(t)
+	h.app.pause = func(int) time.Duration {
+		t.Error("an address whose host does not exist will not exist in two minutes either")
+		return time.Millisecond
+	}
+	origin := "https://wlget-test.invalid"
+	h.store.saved[origin] = &credentials{
+		ClientID: "c", RedirectURL: "http://127.0.0.1:1/callback",
+		AuthURL: origin + "/oauth/authorize", TokenURL: origin + "/oauth/token",
+		Token: &oauth2.Token{AccessToken: "a", Expiry: time.Now().Add(time.Hour)},
+	}
+
+	err := h.get(t, origin+"/me/notes")
+
+	require.Error(t, err)
+}
+
+func TestLogout_WaitsForARenewalUnderWay(t *testing.T) {
+	server := newFakeServer(t)
+	server.pages["/me/notes.md"] = "# Notes\n"
+	h := newHarness(t)
+	require.NoError(t, h.get(t, server.URL+"/me/notes"))
+	renewing := make(chan struct{})
+	release := make(chan struct{})
+	renewed := make(chan error, 1)
+	go func() {
+		renewed <- h.app.locked(context.Background(), server.URL, func() error {
+			close(renewing)
+			<-release
+			saved, err := h.store.load(server.URL)
+			if err != nil {
+				return err
+			}
+			return h.store.save(server.URL, saved)
+		})
+	}()
+	<-renewing
+	impatient, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := h.app.logout(impatient, server.URL+"/me/notes")
+	close(release)
+	require.NoError(t, <-renewed)
+
+	require.Error(t, err,
+		"a logout that does not wait for the renewal removes the entry, and the renewal then saves its token back: the reader is told it is signed out and is not")
+	saved, loadErr := h.store.load(server.URL)
+	require.NoError(t, loadErr)
+	assert.NotNil(t, saved)
+}
+
 func TestGet_GivesUpOnAServerThatStaysDown(t *testing.T) {
 	server := newFakeServer(t)
 	server.unavailable.Store(1000)
@@ -523,7 +590,7 @@ func TestLogout_ForgetsTheServersToken(t *testing.T) {
 	h := newHarness(t)
 	require.NoError(t, h.get(t, server.URL+"/me/notes"))
 
-	require.NoError(t, h.app.logout(server.URL+"/me/notes"))
+	require.NoError(t, h.app.logout(context.Background(), server.URL+"/me/notes"))
 
 	assert.Nil(t, h.store.saved[server.URL])
 }
