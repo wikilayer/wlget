@@ -223,14 +223,26 @@ type memoryStore struct {
 func (m *memoryStore) load(origin string) (*credentials, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.saved[origin], nil
+	return copyCredentials(m.saved[origin]), nil
 }
 
 func (m *memoryStore) save(origin string, c *credentials) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.saved[origin] = c
+	m.saved[origin] = copyCredentials(c)
 	return nil
+}
+
+func copyCredentials(c *credentials) *credentials {
+	if c == nil {
+		return nil
+	}
+	held := *c
+	if c.Token != nil {
+		token := *c.Token
+		held.Token = &token
+	}
+	return &held
 }
 
 func (m *memoryStore) remove(origin string) error {
@@ -255,10 +267,11 @@ func newHarness(t *testing.T) *harness {
 		stderr: &bytes.Buffer{},
 	}
 	h.app = &app{
-		store:  h.store,
-		stdout: h.stdout,
-		stderr: h.stderr,
-		http:   &http.Client{Timeout: 10 * time.Second},
+		store:   h.store,
+		lockDir: t.TempDir(),
+		stdout:  h.stdout,
+		stderr:  h.stderr,
+		http:    &http.Client{Timeout: 10 * time.Second},
 		open: func(_ context.Context, address string) error {
 			h.opened.Add(1)
 			resp, err := http.Get(address)
@@ -314,6 +327,39 @@ func TestGet_RefreshesAnExpiredTokenWithoutAskingAgain(t *testing.T) {
 	assert.Equal(t, int32(1), h.opened.Load())
 	assert.NotEqual(t, "access-1", h.store.saved[server.URL].Token.AccessToken,
 		"the server rotates the refresh token, so the one just spent is worthless and the new pair must be kept")
+}
+
+func TestGet_ParallelReadersRenewTheSharedSignInOnce(t *testing.T) {
+	server := newFakeServer(t)
+	server.pages["/me/notes.md"] = "# Notes\n"
+	first := newHarness(t)
+	require.NoError(t, first.get(t, server.URL+"/me/notes"))
+	first.store.saved[server.URL].Token.Expiry = time.Now().Add(-time.Minute)
+
+	readers := []*harness{first}
+	for range 4 {
+		other := newHarness(t)
+		other.store = first.store
+		other.app.store = first.store
+		other.app.lockDir = first.app.lockDir
+		readers = append(readers, other)
+	}
+	var wg sync.WaitGroup
+	for _, reader := range readers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			assert.NoError(t, reader.get(t, server.URL+"/me/notes"))
+		}()
+	}
+	wg.Wait()
+
+	assert.Equal(t, int32(1), server.refreshes.Load(),
+		"agents in parallel each renewed with the same refresh token, the server read the second use as theft and revoked the sign-in for all of them")
+	for i, reader := range readers {
+		signedInWhileSettingUp := map[bool]int32{true: 1, false: 0}[i == 0]
+		assert.Equal(t, signedInWhileSettingUp, reader.opened.Load(), "nobody had to sign in again")
+	}
 }
 
 func TestGet_SignsInAgainWhenTheServerNoLongerTakesTheToken(t *testing.T) {

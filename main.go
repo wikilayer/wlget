@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"time"
@@ -56,18 +57,23 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "wlget: finding a place for its sign-in lock: %v\n", err)
+		return 1
+	}
 	a := &app{
-		store:  keyringStore{},
-		open:   openBrowser,
-		pause:  backoff,
-		http:   &http.Client{Timeout: 90 * time.Second},
-		stdout: stdout,
-		stderr: stderr,
+		lockDir: filepath.Join(cache, "wlget"),
+		store:   keyringStore{},
+		open:    openBrowser,
+		pause:   backoff,
+		http:    &http.Client{Timeout: 90 * time.Second},
+		stdout:  stdout,
+		stderr:  stderr,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	var err error
 	if *logout {
 		err = a.logout(flags.Arg(0))
 	} else {

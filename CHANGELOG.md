@@ -7,6 +7,12 @@ Notable changes to `wlget` are documented here in the format of
 
 ### Fixed
 
+- Several wlget processes reading at once no longer lose the sign-in when
+  its hour runs out. Each used to renew it with the same refresh token,
+  and the server, which rotates that token, took the second use for
+  theft and revoked the sign-in for all of them. Signing in and renewing
+  now take a lock per server and read the keychain again under it, so
+  one process renews and the rest use what it saved.
 - A server that is restarting, answering 502, 503 or 504 or dropping the
   connection, is asked again with growing pauses for about two minutes
   before wlget gives up, so a wait on the chat survives a deploy. Each
