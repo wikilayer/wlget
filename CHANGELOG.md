@@ -3,6 +3,19 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.1.1 - 2026-10-09
+
+### Fixed
+
+- A server that is restarting, answering 502, 503 or 504 or dropping the
+  connection, is asked again with growing pauses for about two minutes
+  before wlget gives up, so a wait on the chat survives a deploy. Each
+  retry is reported on standard error.
+- A refusal that comes as an HTML page is reported by its status alone,
+  without the page's markup.
+- A server that answers the sign-in question with a redirect is named
+  as such, instead of failing to read the page it redirected to.
+
 ## 0.1.0 - 2026-10-09
 
 The first release.

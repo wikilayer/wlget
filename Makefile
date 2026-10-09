@@ -2,10 +2,15 @@
 
 STATICCHECK_VERSION ?= v0.8.1
 
+# CI builds with the Go that go.mod names, and staticcheck reads only the
+# package format of the Go it runs on, so lint here runs on that same Go
+# rather than whichever one the machine was last upgraded to.
+CI_GO := go$(shell awk '/^go /{print $$2}' go.mod)
+
 .PHONY: install-tools format comments lint test-build test build formula
 
 install-tools:
-	go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
+	GOTOOLCHAIN=$(CI_GO) go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
 	python3 -m pip install --quiet --upgrade git+https://github.com/botforge-pro/commentcensor.git
 
 format:
@@ -17,7 +22,7 @@ comments:
 lint: comments
 	go vet ./...
 	gofmt -l . | (! grep .)
-	staticcheck ./...
+	GOTOOLCHAIN=$(CI_GO) staticcheck ./...
 	go mod tidy -diff
 
 test-build:

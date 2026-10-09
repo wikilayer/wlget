@@ -59,6 +59,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	a := &app{
 		store:  keyringStore{},
 		open:   openBrowser,
+		pause:  backoff,
 		http:   &http.Client{Timeout: 90 * time.Second},
 		stdout: stdout,
 		stderr: stderr,

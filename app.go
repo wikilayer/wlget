@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -21,6 +23,7 @@ type credentialStore interface {
 type app struct {
 	store  credentialStore
 	open   func(ctx context.Context, address string) error
+	pause  func(attempt int) time.Duration
 	http   *http.Client
 	stdout io.Writer
 	stderr io.Writer
@@ -35,11 +38,25 @@ func (a *app) get(ctx context.Context, raw string) error {
 	if err != nil {
 		return err
 	}
+	attempt := 0
 	for {
 		body, err := session.fetch(ctx, t)
+		var unavailable transientError
+		if errors.As(err, &unavailable) && attempt < retryAttempts {
+			wait := a.pause(attempt)
+			attempt++
+			fmt.Fprintf(a.stderr, "wlget: %v; trying again in %s\n", err, wait)
+			select {
+			case <-time.After(wait):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			continue
+		}
 		if err != nil {
 			return err
 		}
+		attempt = 0
 		if t.chat {
 			arrived, err := hasMessages(body)
 			if err != nil {
@@ -111,10 +128,36 @@ func (s *session) signIn(ctx context.Context) error {
 	return err
 }
 
+const retryAttempts = 8
+
+type transientError struct{ err error }
+
+func (e transientError) Error() string { return e.err.Error() }
+
+func (e transientError) Unwrap() error { return e.err }
+
+type notTheDocument struct{ reason string }
+
+func (e notTheDocument) Error() string { return e.reason }
+
+func backoff(attempt int) time.Duration {
+	return min(time.Second<<attempt, 30*time.Second)
+}
+
 func (s *session) fetch(ctx context.Context, t target) ([]byte, error) {
 	resp, err := s.request(ctx, t)
 	if err != nil {
+		var refused notTheDocument
+		var unreachable *url.Error
+		if ctx.Err() == nil && !errors.As(err, &refused) && errors.As(err, &unreachable) {
+			return nil, transientError{err}
+		}
 		return nil, err
+	}
+	switch resp.StatusCode {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		defer s.app.closeBody(resp)
+		return nil, transientError{refusal(http.MethodGet, t.url.String(), resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized && s.creds != nil {
 		s.app.closeBody(resp)
@@ -151,10 +194,10 @@ func (s *session) request(ctx context.Context, t target) (*http.Response, error)
 	client := *s.app.http
 	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
 		if !t.answeredBy(next.URL) {
-			return fmt.Errorf("%s sent wlget on to %s, which is not the document asked for", t.url, next.URL)
+			return notTheDocument{fmt.Sprintf("%s sent wlget on to %s, which is not the document asked for", t.url, next.URL)}
 		}
 		if len(via) >= 10 {
-			return fmt.Errorf("%s redirected ten times without arriving", t.url)
+			return notTheDocument{fmt.Sprintf("%s redirected ten times without arriving", t.url)}
 		}
 		return nil
 	}
@@ -190,6 +233,9 @@ func (s *session) token(ctx context.Context) (string, error) {
 }
 
 func refusal(method, address string, resp *http.Response) error {
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+		return fmt.Errorf("%s %s: %s", method, address, resp.Status)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return fmt.Errorf("%s %s: %s, and its explanation broke off: %w", method, address, resp.Status, err)

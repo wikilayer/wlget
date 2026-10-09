@@ -38,6 +38,7 @@ type fakeServer struct {
 	chatPages          []string
 	chatAsked          atomic.Int32
 	chatStatus         int
+	unavailable        atomic.Int32
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
@@ -184,6 +185,12 @@ func (f *fakeServer) page(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeServer) chat(w http.ResponseWriter, r *http.Request) {
+	if f.unavailable.Add(-1) >= 0 {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("<html>502 Bad Gateway</html>"))
+		return
+	}
 	if !f.authorized(r) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_token"})
 		return
@@ -393,6 +400,34 @@ func TestGet_ChatWaitsUntilSomethingArrives(t *testing.T) {
 	assert.Equal(t, int32(3), server.chatAsked.Load(),
 		"an empty answer means the server's wait ran out, and the reader asked to be told when something comes")
 	assert.JSONEq(t, arrived, h.stdout.String())
+}
+
+func TestGet_WaitsOutAServerThatIsRestarting(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{`{"messages":[{"seq":8}],"latest_seq":8,"has_more":false}`}
+	server.unavailable.Store(2)
+	h := newHarness(t)
+	h.app.pause = func(int) time.Duration { return time.Millisecond }
+
+	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"),
+		"a deploy restarts the server under every agent waiting on the chat, and each of them died with a 502")
+
+	assert.Contains(t, h.stderr.String(), "502")
+	assert.JSONEq(t, `{"messages":[{"seq":8}],"latest_seq":8,"has_more":false}`, h.stdout.String())
+}
+
+func TestGet_GivesUpOnAServerThatStaysDown(t *testing.T) {
+	server := newFakeServer(t)
+	server.unavailable.Store(1000)
+	h := newHarness(t)
+	h.app.pause = func(int) time.Duration { return time.Millisecond }
+
+	err := h.get(t, server.URL+"/chat?after_seq=7")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "502")
+	assert.NotContains(t, err.Error(), "<html>",
+		"a proxy's error page is markup, and the status line already says what happened")
 }
 
 func TestGet_RefusesAChatAnswerWithoutMessages(t *testing.T) {
