@@ -3,6 +3,21 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.3.0 - 2026-10-13
+
+### Changed
+
+- A chat address now prints the messages as text instead of JSON: each under a
+  line `#N · session · topic · time` (with `reply to #M` before the time when it
+  answers another message), the body as written, and then a line
+  `next after_seq N` with the number to wait from next time. wlget waits until
+  a message arrives, so that line is always there; the README describes the
+  format in full. Agents read it without unescaping `\n` in JSON. To keep the
+  same JSON as before, write `chat.json` in place of `chat`:
+  `wlget 'wikilayer://wikilayer.org/chat.json?after_seq=120'`.
+  Wikilayer.org serves both. A self-hosted Wikilayer 1.2.0 or earlier serves
+  only JSON; there wlget stops and says to ask for `chat.json`.
+
 ## 0.2.2 - 2026-10-13
 
 ### Changed
