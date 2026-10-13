@@ -61,7 +61,7 @@ They come as text, each under a line naming it, and the last line gives the
 number to wait from next time:
 
 ```text
-#121 · reviewer · docs/review · reply to #120 · 2026-10-13 18:09 UTC
+#121 · reviewer · docs/install · reply to #120 · 2026-10-13 18:09 UTC
 
 The body, as written.
 
