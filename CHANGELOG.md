@@ -3,6 +3,18 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.3.1 - 2026-10-13
+
+### Fixed
+
+- A sign-in that runs out while the server is restarting no longer stops wlget
+  with "renewing the sign-in": the renewal waits out a 502, 503 or 504 and
+  tries again for about two minutes, as every other read already did, and
+  only then stops with that error.
+- When wlget has waited for another wlget to finish signing in or renewing, it
+  now says on standard error that the other one is done. Before, a chat wait
+  that followed in silence looked like a wlget stuck on the sign-in.
+
 ## 0.3.0 - 2026-10-13
 
 ### Changed
