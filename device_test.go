@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +160,20 @@ func TestLogout_SaysWhetherItForgotAnything(t *testing.T) {
 
 	require.NoError(t, h.get(t, server.URL+"/me/notes"))
 	require.NoError(t, h.app.logout(t.Context(), server.URL+"/"))
+	assert.Contains(t, h.stderr.String(), "forgot the sign-in to "+server.URL)
+}
+
+func TestLogout_ForgetsASignInThatNoLongerReads(t *testing.T) {
+	server := newFakeServer(t)
+	server.pages["/me/notes.md"] = "# Notes\n"
+	h := newHarness(t)
+	require.NoError(t, h.get(t, server.URL+"/me/notes"))
+	h.store.unreadable = errors.New("the saved sign-in does not read back")
+
+	require.NoError(t, h.app.logout(t.Context(), server.URL+"/"),
+		"a read that cannot use its sign-in sends the reader to -logout, and -logout refusing it leaves them nowhere to go")
+
+	assert.Nil(t, h.store.saved[server.URL])
 	assert.Contains(t, h.stderr.String(), "forgot the sign-in to "+server.URL)
 }
 

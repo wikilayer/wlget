@@ -22,7 +22,7 @@ Notable changes to `wlget` are documented here in the format of
 
 ### Fixed
 
-- `wlget -logout wikilayer://wikilayer.org/`, as this README shows it, now logs
+- `wlget -logout wikilayer://wikilayer.org/`, as the README shows it, now logs
   out. It used to refuse the address as naming no page. `-logout` also says
   what it forgot and from where, or that nothing was kept there.
 

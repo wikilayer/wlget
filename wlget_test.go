@@ -259,8 +259,9 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 }
 
 type memoryStore struct {
-	mu    sync.Mutex
-	saved map[string]*credentials
+	mu         sync.Mutex
+	saved      map[string]*credentials
+	unreadable error
 }
 
 func (m *memoryStore) describe() string {
@@ -270,6 +271,9 @@ func (m *memoryStore) describe() string {
 func (m *memoryStore) load(origin string) (*credentials, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.unreadable != nil {
+		return nil, m.unreadable
+	}
 	return copyCredentials(m.saved[origin]), nil
 }
 
