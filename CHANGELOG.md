@@ -3,19 +3,23 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## 0.2.1 - 2026-10-13
 
 ### Added
 
-- Debian and Ubuntu install wlget with `apt install wlget` from the Wikilayer
-  APT repository, for amd64 and arm64, and `apt upgrade` brings new versions.
-  Each release also carries the `.deb` packages and `.tar.gz` archives of the
-  Linux binary, with their SHA-256 sums.
+- Debian and Ubuntu, on amd64 and arm64, install wlget with `apt install wlget`
+  once the [Wikilayer APT repository](https://github.com/wikilayer/apt#install)
+  is added as its README shows, and `apt upgrade` then brings new versions.
+  With Homebrew, `brew upgrade wlget` brings 0.2.1 as before.
+- Each version's [GitHub release](https://github.com/wikilayer/wlget/releases)
+  also has `.deb` packages and `.tar.gz` archives of the Linux binary for amd64
+  and arm64, each with a `.sha256` file.
 
 ### Fixed
 
-- `wlget -h` no longer says the first read always signs in in the browser; it
-  names the sign-in from another device as well.
+- `wlget -h` said that wlget always signs in through the browser. It now also
+  describes the sign-in from another device that 0.2.0 added for machines
+  without a browser.
 
 ## 0.2.0 - 2026-10-13
 
