@@ -89,7 +89,16 @@ func (a *app) logout(ctx context.Context, raw string) error {
 	}
 	origin := target{url: server}.origin()
 	return a.locked(ctx, origin, func() error {
-		return a.store.remove(origin)
+		held, unreadable := a.store.load(origin)
+		if unreadable == nil && held == nil {
+			fmt.Fprintf(a.stderr, "wlget: %s keeps no sign-in to %s, so there was nothing to forget\n", a.store.describe(), origin)
+			return nil
+		}
+		if err := a.store.remove(origin); err != nil {
+			return err
+		}
+		fmt.Fprintf(a.stderr, "wlget: forgot the sign-in to %s from %s\n", origin, a.store.describe())
+		return nil
 	})
 }
 
@@ -147,8 +156,16 @@ func (a *app) locked(ctx context.Context, origin string, change func() error) er
 	}
 	name := sha256.Sum256([]byte(origin))
 	lock := flock.New(filepath.Join(a.lockDir, hex.EncodeToString(name[:8])+".lock"))
-	if _, err := lock.TryLockContext(ctx, 50*time.Millisecond); err != nil {
-		return fmt.Errorf("waiting for another wlget to finish with the sign-in to %s: %w", origin, err)
+	free, err := lock.TryLock()
+	if err != nil {
+		return fmt.Errorf("taking the lock on the sign-in to %s: %w", origin, err)
+	}
+	if !free {
+		fmt.Fprintf(a.stderr, "wlget: waiting for another wlget that is signing in to %s or renewing its sign-in; "+
+			"if it showed a code, approving that code lets this one go on too\n", origin)
+		if _, err := lock.TryLockContext(ctx, 50*time.Millisecond); err != nil {
+			return fmt.Errorf("waiting for another wlget to finish with the sign-in to %s: %w", origin, err)
+		}
 	}
 	defer func() {
 		if err := lock.Unlock(); err != nil {

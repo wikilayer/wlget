@@ -132,16 +132,55 @@ func TestChooseSignIn_SaysWhyItChoseAndTakesWhatItIsTold(t *testing.T) {
 
 func TestChooseStore_TakesOnlyWhatItKnows(t *testing.T) {
 	none := func(string) string { return "" }
-	store, err := chooseStore("", none)
+	store, err := chooseStore("", none, "linux")
 	require.NoError(t, err)
 	assert.IsType(t, keyringStore{}, store, "with nothing asked, the sign-in goes to the keychain")
 
-	store, err = chooseStore("", func(name string) string { return map[string]string{"WLGET_STORE": "file"}[name] })
+	store, err = chooseStore("", func(name string) string { return map[string]string{"WLGET_STORE": "file"}[name] }, "linux")
 	require.NoError(t, err)
 	assert.IsType(t, fileStore{}, store)
 
-	_, err = chooseStore("disk", none)
+	_, err = chooseStore("disk", none, "linux")
 	assert.ErrorContains(t, err, "-store=disk is neither keychain nor file")
+
+	_, err = chooseStore("file", none, "windows")
+	assert.ErrorContains(t, err, "on Windows wlget cannot make a file so",
+		"Windows reports every writable file as readable by all, so a file store there is refused on its second read")
+}
+
+func TestLogout_SaysWhetherItForgotAnything(t *testing.T) {
+	server := newFakeServer(t)
+	server.pages["/me/notes.md"] = "# Notes\n"
+	h := newHarness(t)
+
+	require.NoError(t, h.app.logout(t.Context(), server.URL+"/"))
+	assert.Contains(t, h.stderr.String(), "nothing to forget",
+		"a logout from a store that never held the sign-in looks the same as one that removed it")
+
+	require.NoError(t, h.get(t, server.URL+"/me/notes"))
+	require.NoError(t, h.app.logout(t.Context(), server.URL+"/"))
+	assert.Contains(t, h.stderr.String(), "forgot the sign-in to "+server.URL)
+}
+
+func TestLocked_SaysWhatItWaitsFor(t *testing.T) {
+	h := newHarness(t)
+	origin := "https://wikilayer.example"
+	inside, release := make(chan struct{}), make(chan struct{})
+	go func() {
+		_ = h.app.locked(t.Context(), origin, func() error {
+			close(inside)
+			<-release
+			return nil
+		})
+	}()
+	<-inside
+
+	done := make(chan error, 1)
+	go func() { done <- h.app.locked(t.Context(), origin, func() error { return nil }) }()
+	require.Eventually(t, func() bool { return strings.Contains(h.stderr.String(), "waiting for another wlget") },
+		5*time.Second, 10*time.Millisecond, "a second wlget waits silently while the first one waits for a code to be approved")
+	close(release)
+	require.NoError(t, <-done)
 }
 
 func TestKeychainFailure_NamesTheFileStore(t *testing.T) {

@@ -75,8 +75,9 @@ taking it. It is kept in the system keychain. A machine without one, such as a
 server reached over SSH, keeps it in a file instead when you say so with
 `-store=file` or `WLGET_STORE=file`: wlget then writes it under its folder in the
 user configuration directory, readable only by your account, and refuses a file
-others can read. Without that, a missing keychain stops wlget with a message
-saying so; it never moves the sign-in to a file on its own.
+others can read; on Windows, where it cannot make such a file, it refuses the
+option. Without that, a missing keychain stops wlget with a message saying so; it
+never moves the sign-in to a file on its own.
 
 ```sh
 wlget -logout wikilayer://wikilayer.org/

@@ -15,7 +15,16 @@ Notable changes to `wlget` are documented here in the format of
   offer this sign-in; wlget names the way out when it does not.
 - `-store=file` (or `WLGET_STORE=file`) keeps the sign-in in a file only your
   account can read, for a machine with no system keychain. Without it, a missing
-  keychain stops wlget with a message naming this option.
+  keychain stops wlget with a message naming this option. Windows cannot make a
+  file only one account reads, so there wlget refuses this option.
+- A wlget that waits while another one signs in or renews says so, instead of
+  waiting in silence.
+
+### Fixed
+
+- `wlget -logout wikilayer://wikilayer.org/`, as this README shows it, now logs
+  out. It used to refuse the address as naming no page. `-logout` also says
+  what it forgot and from where, or that nothing was kept there.
 
 ## 0.1.1 - 2026-10-09
 

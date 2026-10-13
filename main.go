@@ -69,7 +69,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "wlget: %v\n", err)
 		return 2
 	}
-	store, err := chooseStore(*storeFlag, os.Getenv)
+	store, err := chooseStore(*storeFlag, os.Getenv, runtime.GOOS)
 	if err != nil {
 		fmt.Fprintf(stderr, "wlget: %v\n", err)
 		return 2

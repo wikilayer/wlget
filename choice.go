@@ -54,7 +54,7 @@ const (
 	storeFile     storeKind = "file"
 )
 
-func chooseStore(asked string, getenv func(string) string) (credentialStore, error) {
+func chooseStore(asked string, getenv func(string) string, goos string) (credentialStore, error) {
 	source := "-store"
 	if asked == "" {
 		asked, source = getenv("WLGET_STORE"), "WLGET_STORE"
@@ -63,6 +63,10 @@ func chooseStore(asked string, getenv func(string) string) (credentialStore, err
 	case "", storeKeychain:
 		return keyringStore{}, nil
 	case storeFile:
+		if goos == "windows" {
+			return nil, fmt.Errorf("%s=%s keeps the sign-in in a file only your account can read, and on Windows wlget cannot make a file so; "+
+				"use the Windows Credential Manager, which is the default", source, asked)
+		}
 		config, err := os.UserConfigDir()
 		if err != nil {
 			return nil, fmt.Errorf("finding a place for the sign-in file: %w", err)
