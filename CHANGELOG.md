@@ -3,6 +3,20 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Added
+
+- wlget signs in on a machine with no browser, such as a server reached over
+  SSH: it prints an address and a code, and you approve the sign-in on your
+  phone or computer. It does so on its own in an SSH session or where neither
+  `DISPLAY` nor `WAYLAND_DISPLAY` is set, says why, and takes `-signin=browser`
+  or `-signin=device` (or `WLGET_SIGNIN`) to choose otherwise. The server has to
+  offer this sign-in; wlget names the way out when it does not.
+- `-store=file` (or `WLGET_STORE=file`) keeps the sign-in in a file only your
+  account can read, for a machine with no system keychain. Without it, a missing
+  keychain stops wlget with a message naming this option.
+
 ## 0.1.1 - 2026-10-09
 
 ### Fixed

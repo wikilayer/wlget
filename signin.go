@@ -19,8 +19,8 @@ const signInWait = 5 * time.Minute
 
 type credentials struct {
 	ClientID    string        `json:"client_id"`
-	RedirectURL string        `json:"redirect_url"`
-	AuthURL     string        `json:"auth_url"`
+	RedirectURL string        `json:"redirect_url,omitempty"`
+	AuthURL     string        `json:"auth_url,omitempty"`
 	TokenURL    string        `json:"token_url"`
 	Token       *oauth2.Token `json:"token"`
 }
@@ -42,9 +42,8 @@ func decodeCredentials(text string) (*credentials, error) {
 }
 
 func (c *credentials) complete() error {
-	if c.ClientID == "" || c.RedirectURL == "" || c.AuthURL == "" || c.TokenURL == "" ||
-		c.Token == nil || c.Token.AccessToken == "" {
-		return errors.New("the saved sign-in is missing its client, its endpoints or its token")
+	if c.ClientID == "" || c.TokenURL == "" || c.Token == nil || c.Token.AccessToken == "" {
+		return errors.New("the saved sign-in is missing its client, its token endpoint or its token")
 	}
 	return nil
 }
@@ -63,9 +62,10 @@ func (c *credentials) config() *oauth2.Config {
 }
 
 type serverMetadata struct {
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
-	TokenEndpoint         string `json:"token_endpoint"`
-	RegistrationEndpoint  string `json:"registration_endpoint"`
+	AuthorizationEndpoint       string `json:"authorization_endpoint"`
+	TokenEndpoint               string `json:"token_endpoint"`
+	RegistrationEndpoint        string `json:"registration_endpoint"`
+	DeviceAuthorizationEndpoint string `json:"device_authorization_endpoint"`
 }
 
 func (a *app) discover(ctx context.Context, origin string) (*serverMetadata, error) {
@@ -100,13 +100,75 @@ func (a *app) discover(ctx context.Context, origin string) (*serverMetadata, err
 	return &meta, nil
 }
 
-func (a *app) signIn(ctx context.Context, origin string, meta *serverMetadata) (_ *credentials, err error) {
+func (a *app) signIn(ctx context.Context, origin string, meta *serverMetadata) (*credentials, error) {
+	var creds *credentials
+	var err error
+	switch a.signInWith.method {
+	case methodDevice:
+		creds, err = a.signInFromAnotherDevice(ctx, origin, meta)
+	default:
+		creds, err = a.signInInTheBrowser(ctx, origin, meta)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := a.store.save(origin, creds); err != nil {
+		return nil, fmt.Errorf("keeping the sign-in to %s: %w", origin, err)
+	}
+	fmt.Fprintf(a.stderr, "Signed in to %s; the sign-in is kept in %s.\n", origin, a.store.describe())
+	return creds, nil
+}
+
+func (a *app) signInFromAnotherDevice(ctx context.Context, origin string, meta *serverMetadata) (*credentials, error) {
+	if meta.DeviceAuthorizationEndpoint == "" {
+		return nil, fmt.Errorf("%s offers no sign-in from another device, which this machine needs because %s; "+
+			"sign in where a browser runs, or pass -signin=%s to try the browser here",
+			origin, a.signInWith.reason, methodBrowser)
+	}
+	clientID, err := a.register(ctx, meta.RegistrationEndpoint, nil,
+		[]string{deviceCodeGrant, "refresh_token"})
+	if err != nil {
+		return nil, err
+	}
+	creds := &credentials{ClientID: clientID, TokenURL: meta.TokenEndpoint}
+	config := creds.config()
+	config.Endpoint.DeviceAuthURL = meta.DeviceAuthorizationEndpoint
+	asked := context.WithValue(ctx, oauth2.HTTPClient, a.http)
+	started, err := config.DeviceAuth(asked)
+	if err != nil {
+		return nil, fmt.Errorf("asking %s for a sign-in code: %w", meta.DeviceAuthorizationEndpoint, err)
+	}
+	fmt.Fprintf(a.stderr, "wlget: sign in to %s from another device, because %s.\n", origin, a.signInWith.reason)
+	if started.VerificationURIComplete != "" {
+		fmt.Fprintf(a.stderr, "  open:  %s\n", started.VerificationURIComplete)
+	}
+	fmt.Fprintf(a.stderr, "  or open %s and enter %s\n", started.VerificationURI, started.UserCode)
+	if !started.Expiry.IsZero() {
+		fmt.Fprintf(a.stderr, "  the code expires at %s; wlget waits until then\n", started.Expiry.UTC().Format("15:04 UTC"))
+	}
+	token, err := config.DeviceAccessToken(asked, started)
+	if err != nil {
+		var refused *oauth2.RetrieveError
+		switch {
+		case errors.As(err, &refused) && refused.ErrorCode == "access_denied":
+			return nil, fmt.Errorf("the sign-in to %s was denied on the approval page", origin)
+		case errors.As(err, &refused) && refused.ErrorCode == "expired_token", errors.Is(err, context.DeadlineExceeded):
+			return nil, fmt.Errorf("nobody approved the sign-in to %s before its code expired; run wlget again for a new code", origin)
+		}
+		return nil, fmt.Errorf("waiting for the sign-in to %s to be approved: %w", origin, err)
+	}
+	creds.Token = token
+	return creds, nil
+}
+
+func (a *app) signInInTheBrowser(ctx context.Context, origin string, meta *serverMetadata) (_ *credentials, err error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("opening a port on 127.0.0.1 for the browser to come back to: %w", err)
 	}
 	redirect := fmt.Sprintf("http://%s/callback", listener.Addr())
-	clientID, err := a.register(ctx, meta.RegistrationEndpoint, redirect)
+	clientID, err := a.register(ctx, meta.RegistrationEndpoint, []string{redirect},
+		[]string{"authorization_code", "refresh_token"})
 	if err != nil {
 		return nil, errors.Join(err, listener.Close())
 	}
@@ -133,7 +195,7 @@ func (a *app) signIn(ctx context.Context, origin string, meta *serverMetadata) (
 	defer func() { err = errors.Join(err, callbackServer.Close()) }()
 
 	address := config.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
-	fmt.Fprintf(a.stderr, "Sign in to %s in the browser:\n  %s\n", origin, address)
+	fmt.Fprintf(a.stderr, "Sign in to %s in the browser, because %s:\n  %s\n", origin, a.signInWith.reason, address)
 	if err := a.open(ctx, address); err != nil {
 		fmt.Fprintf(a.stderr, "The browser did not open (%v); open the address above yourself.\n", err)
 	}
@@ -155,21 +217,22 @@ func (a *app) signIn(ctx context.Context, origin string, meta *serverMetadata) (
 		return nil, fmt.Errorf("trading the sign-in for a token at %s: %w", meta.TokenEndpoint, err)
 	}
 	creds.Token = token
-	if err := a.store.save(origin, creds); err != nil {
-		return nil, fmt.Errorf("keeping the sign-in to %s: %w", origin, err)
-	}
-	fmt.Fprintf(a.stderr, "Signed in to %s.\n", origin)
 	return creds, nil
 }
 
-func (a *app) register(ctx context.Context, endpoint, redirect string) (string, error) {
-	body, err := json.Marshal(map[string]any{
+const deviceCodeGrant = "urn:ietf:params:oauth:grant-type:device_code"
+
+func (a *app) register(ctx context.Context, endpoint string, redirects, grants []string) (string, error) {
+	metadata := map[string]any{
 		"client_name":                "wlget",
-		"redirect_uris":              []string{redirect},
-		"grant_types":                []string{"authorization_code", "refresh_token"},
-		"response_types":             []string{"code"},
+		"grant_types":                grants,
 		"token_endpoint_auth_method": "none",
-	})
+	}
+	if len(redirects) > 0 {
+		metadata["redirect_uris"] = redirects
+		metadata["response_types"] = []string{"code"}
+	}
+	body, err := json.Marshal(metadata)
 	if err != nil {
 		return "", err
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,21 +40,26 @@ type fakeServer struct {
 	chatAsked          atomic.Int32
 	chatStatus         int
 	unavailable        atomic.Int32
+	device             bool
+	deviceAnswer       func(deviceCode string) string
+	deviceCodes        map[string]string
 }
 
 func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{
-		t:       t,
-		signIn:  true,
-		clients: map[string]string{},
-		codes:   map[string]string{},
-		access:  map[string]bool{},
-		refresh: map[string]bool{},
-		pages:   map[string]string{},
+		t:           t,
+		signIn:      true,
+		clients:     map[string]string{},
+		codes:       map[string]string{},
+		access:      map[string]bool{},
+		refresh:     map[string]bool{},
+		pages:       map[string]string{},
+		deviceCodes: map[string]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", f.metadata)
 	mux.HandleFunc("POST /oauth/register", f.register)
+	mux.HandleFunc("POST /oauth/device", f.deviceAuthorization)
 	mux.HandleFunc("GET /oauth/authorize", f.authorize)
 	mux.HandleFunc("POST /oauth/token", f.token)
 	mux.HandleFunc("GET /chat", f.chat)
@@ -72,25 +78,50 @@ func (f *fakeServer) metadata(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, nil)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	meta := map[string]any{
 		"issuer":                 f.URL,
 		"authorization_endpoint": f.URL + "/oauth/authorize",
 		"token_endpoint":         f.URL + "/oauth/token",
 		"registration_endpoint":  f.URL + "/oauth/register",
-	})
+	}
+	if f.device {
+		meta["device_authorization_endpoint"] = f.URL + "/oauth/device"
+	}
+	writeJSON(w, http.StatusOK, meta)
 }
 
 func (f *fakeServer) register(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		RedirectURIs []string `json:"redirect_uris"`
+		GrantTypes   []string `json:"grant_types"`
 	}
 	require.NoError(f.t, json.NewDecoder(r.Body).Decode(&body))
+	if slices.Contains(body.GrantTypes, deviceCodeGrant) {
+		assert.Empty(f.t, body.RedirectURIs, "a client signing in from another device registered somewhere for a browser to come back to")
+		body.RedirectURIs = []string{""}
+	}
 	require.Len(f.t, body.RedirectURIs, 1)
 	f.mu.Lock()
 	id := fmt.Sprintf("client-%d", len(f.clients)+1)
 	f.clients[id] = body.RedirectURIs[0]
 	f.mu.Unlock()
 	writeJSON(w, http.StatusCreated, map[string]any{"client_id": id})
+}
+
+func (f *fakeServer) deviceAuthorization(w http.ResponseWriter, r *http.Request) {
+	require.NoError(f.t, r.ParseForm())
+	f.mu.Lock()
+	deviceCode := fmt.Sprintf("device-%d", len(f.deviceCodes)+1)
+	f.deviceCodes[deviceCode] = r.PostFormValue("client_id")
+	f.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"device_code":               deviceCode,
+		"user_code":                 "BCDF-GHJK",
+		"verification_uri":          f.URL + "/device",
+		"verification_uri_complete": f.URL + "/device?code=BCDF-GHJK",
+		"expires_in":                600,
+		"interval":                  1,
+	})
 }
 
 func (f *fakeServer) authorize(w http.ResponseWriter, r *http.Request) {
@@ -133,6 +164,18 @@ func (f *fakeServer) token(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(f.refresh, r.PostFormValue("refresh_token"))
 		f.refreshes.Add(1)
+	case deviceCodeGrant:
+		deviceCode := r.PostFormValue("device_code")
+		if f.deviceCodes[deviceCode] != r.PostFormValue("client_id") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid_grant"})
+			return
+		}
+		if answer := f.deviceAnswer(deviceCode); answer != "" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": answer})
+			return
+		}
+		delete(f.deviceCodes, deviceCode)
+		f.signIns.Add(1)
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unsupported_grant_type"})
 		return
@@ -220,6 +263,10 @@ type memoryStore struct {
 	saved map[string]*credentials
 }
 
+func (m *memoryStore) describe() string {
+	return "memory"
+}
+
 func (m *memoryStore) load(origin string) (*credentials, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -252,11 +299,28 @@ func (m *memoryStore) remove(origin string) error {
 	return nil
 }
 
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 type harness struct {
 	app    *app
 	store  *memoryStore
 	stdout *bytes.Buffer
-	stderr *bytes.Buffer
+	stderr *lockedBuffer
 	opened atomic.Int32
 }
 
@@ -264,14 +328,15 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{
 		store:  &memoryStore{saved: map[string]*credentials{}},
 		stdout: &bytes.Buffer{},
-		stderr: &bytes.Buffer{},
+		stderr: &lockedBuffer{},
 	}
 	h.app = &app{
-		store:   h.store,
-		lockDir: t.TempDir(),
-		stdout:  h.stdout,
-		stderr:  h.stderr,
-		http:    &http.Client{Timeout: 10 * time.Second},
+		store:      h.store,
+		signInWith: signInChoice{methodBrowser, "the test asks for the browser"},
+		lockDir:    t.TempDir(),
+		stdout:     h.stdout,
+		stderr:     h.stderr,
+		http:       &http.Client{Timeout: 10 * time.Second},
 		open: func(_ context.Context, address string) error {
 			h.opened.Add(1)
 			resp, err := http.Get(address)

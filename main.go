@@ -45,6 +45,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
 	showVersion := flags.Bool("version", false, "print the version")
+	signInFlag := flags.String("signin", "", "how to sign in: browser, or device to approve a code on another device (default: device in an SSH session or without a display, browser otherwise; also WLGET_SIGNIN)")
+	storeFlag := flags.String("store", "", "where to keep the sign-in: keychain, or file for a file only your account can read (default keychain; also WLGET_STORE)")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -62,14 +64,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "wlget: finding a place for its sign-in lock: %v\n", err)
 		return 1
 	}
+	signInWith, err := chooseSignIn(*signInFlag, os.Getenv, runtime.GOOS)
+	if err != nil {
+		fmt.Fprintf(stderr, "wlget: %v\n", err)
+		return 2
+	}
+	store, err := chooseStore(*storeFlag, os.Getenv)
+	if err != nil {
+		fmt.Fprintf(stderr, "wlget: %v\n", err)
+		return 2
+	}
 	a := &app{
-		lockDir: filepath.Join(cache, "wlget"),
-		store:   keyringStore{},
-		open:    openBrowser,
-		pause:   backoff,
-		http:    &http.Client{Timeout: 90 * time.Second},
-		stdout:  stdout,
-		stderr:  stderr,
+		lockDir:    filepath.Join(cache, "wlget"),
+		store:      store,
+		signInWith: signInWith,
+		open:       openBrowser,
+		pause:      backoff,
+		http:       &http.Client{Timeout: 90 * time.Second},
+		stdout:     stdout,
+		stderr:     stderr,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

@@ -7,7 +7,11 @@ STATICCHECK_VERSION ?= v0.8.1
 # rather than whichever one the machine was last upgraded to.
 CI_GO := go$(shell awk '/^go /{print $$2}' go.mod)
 
-.PHONY: install-tools format comments lint test-build test build formula
+# A Debian container with no D-Bus, no Secret Service and no browser: the
+# machine reached over SSH that wlget has to sign in from without either.
+LINUX_IMAGE := golang:$(patsubst go%,%,$(CI_GO))-bookworm
+
+.PHONY: install-tools format comments lint test-build test test-linux build formula
 
 install-tools:
 	GOTOOLCHAIN=$(CI_GO) go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
@@ -31,6 +35,9 @@ test-build:
 
 test:
 	go test ./...
+
+test-linux:
+	docker run --rm -v "$(CURDIR)":/src -w /src -e GOFLAGS=-buildvcs=false $(LINUX_IMAGE) go test -count=1 ./...
 
 build: lint test-build test
 	mkdir -p bin

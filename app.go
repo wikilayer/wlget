@@ -23,19 +23,21 @@ import (
 )
 
 type credentialStore interface {
+	describe() string
 	load(origin string) (*credentials, error)
 	save(origin string, c *credentials) error
 	remove(origin string) error
 }
 
 type app struct {
-	lockDir string
-	store   credentialStore
-	open    func(ctx context.Context, address string) error
-	pause   func(attempt int) time.Duration
-	http    *http.Client
-	stdout  io.Writer
-	stderr  io.Writer
+	lockDir    string
+	store      credentialStore
+	signInWith signInChoice
+	open       func(ctx context.Context, address string) error
+	pause      func(attempt int) time.Duration
+	http       *http.Client
+	stdout     io.Writer
+	stderr     io.Writer
 }
 
 func (a *app) get(ctx context.Context, raw string) error {

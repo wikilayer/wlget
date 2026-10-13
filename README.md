@@ -56,20 +56,34 @@ time, and `has_more` when more messages are waiting than one answer holds.
 
 ## Signing in
 
-The first read from a server opens the browser to sign in to it and prints the
-address too, for when the browser does not open by itself. The browser has to
-run on the same computer as wlget, because the sign-in comes back to a port wlget
-opens there: on a machine you reach over SSH and that has no browser of its own,
-signing in does not work yet. The sign-in is kept in the system keychain under
-that server, renewed on its own, and asked for again only when the server stops
-taking it.
+The first read from a server signs in to it, in one of two ways, and says on
+standard error which one and why:
+
+- **In the browser**, on a computer with a screen. wlget opens the sign-in page and
+  prints its address too, for when the browser does not open by itself.
+- **From another device**, in an SSH session or on a machine with no display
+  (neither `DISPLAY` nor `WAYLAND_DISPLAY` set). wlget prints an address and a
+  code; open the address on your phone or computer, sign in and approve. The
+  code expires after 10 minutes, and wlget waits until then, so an agent should
+  start this read in the background and pass the address on to you. The server
+  has to offer this sign-in, as Wikilayer.org does.
+
+`-signin=browser` or `-signin=device`, or `WLGET_SIGNIN`, picks the way yourself.
+
+The sign-in is renewed on its own and asked for again only when the server stops
+taking it. It is kept in the system keychain. A machine without one, such as a
+server reached over SSH, keeps it in a file instead when you say so with
+`-store=file` or `WLGET_STORE=file`: wlget then writes it under its folder in the
+user configuration directory, readable only by your account, and refuses a file
+others can read. Without that, a missing keychain stops wlget with a message
+saying so; it never moves the sign-in to a file on its own.
 
 ```sh
 wlget -logout wikilayer://wikilayer.org/
 ```
 
-forgets the sign-in to that server. A server installed on this computer for one
-person asks for no sign-in.
+forgets the sign-in to that server, from the store you chose. A server installed
+on this computer for one person asks for no sign-in.
 
 ## Lines of code
 
