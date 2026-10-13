@@ -27,7 +27,8 @@ Prints a Wikilayer page, wiki or chat to standard output.
 
 A page comes as Markdown unless the address ends in .json or .html. A chat
 address waits until a message after after_seq arrives and prints it as JSON.
-The first read from a server asks you to sign in to it in the browser.
+The first read from a server signs in to it: in the browser, or with a code
+approved on another device in an SSH session or on Linux with no display.
 
 Flags:
 `
@@ -45,7 +46,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
 	showVersion := flags.Bool("version", false, "print the version")
-	signInFlag := flags.String("signin", "", "how to sign in: browser, or device to approve a code on another device (default: device in an SSH session or without a display, browser otherwise; also WLGET_SIGNIN)")
+	signInFlag := flags.String("signin", "", "how to sign in: browser, or device to approve a code on another device (default: device in an SSH session or on Linux with no display, browser otherwise; also WLGET_SIGNIN)")
 	storeFlag := flags.String("store", "", "where to keep the sign-in: keychain, or file for a file only your account can read (default keychain; also WLGET_STORE)")
 	if err := flags.Parse(args); err != nil {
 		return 2

@@ -3,6 +3,13 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- `wlget -h` no longer says the first read always signs in in the browser; it
+  names the sign-in from another device as well.
+
 ## 0.2.0 - 2026-10-13
 
 ### Added
