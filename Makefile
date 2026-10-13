@@ -65,22 +65,32 @@ packages:
 	    CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist/linux_$$arch/wlget .; \
 	    tar -czf dist/wlget_$(VERSION)_linux_$$arch.tar.gz -C dist/linux_$$arch wlget -C ../.. LICENSE README.md; \
 	    rm -rf dist/package; mkdir -p dist/package; cp dist/linux_$$arch/wlget dist/package/wlget; \
-	    GOARCH=$$arch VERSION=$(VERSION) go run github.com/goreleaser/nfpm/v2/cmd/nfpm@$(NFPM_VERSION) package \
+	    PACKAGE_ARCH=$$arch VERSION=$(VERSION) go run github.com/goreleaser/nfpm/v2/cmd/nfpm@$(NFPM_VERSION) package \
 	        --config packaging/nfpm.yaml --packager deb --target dist/wlget_$(VERSION)_$$arch.deb; \
 	done
 	cd dist && for f in *.tar.gz *.deb; do shasum -a 256 "$$f" > "$$f.sha256"; done
 
-# Installs the .deb for this machine's architecture in a clean Debian container
-# and runs it.
+# Checks that each .deb names its own architecture, then installs the one for
+# this machine in a clean Debian container and runs it.
 test-packages: packages
 	docker run --rm -v "$(CURDIR)/dist":/dist:ro debian:bookworm sh -c \
-	    'apt-get update -qq && apt-get install -qq -y /dist/wlget_$(VERSION)_$$(dpkg --print-architecture).deb >/dev/null && test "$$(wlget -version)" = "$(VERSION)" && wlget -h 2>&1 | head -1'
+	    'set -e; for arch in $(LINUX_ARCHES); do test "$$(dpkg-deb --field /dist/wlget_$(VERSION)_$$arch.deb Architecture)" = $$arch; done; \
+	     apt-get update -qq && apt-get install -qq -y /dist/wlget_$(VERSION)_$$(dpkg --print-architecture).deb >/dev/null && test "$$(wlget -version)" = "$(VERSION)" && wlget -h 2>&1 | head -1'
 
 # Publishes the release's .deb packages to the APT repository at
 # wikilayer/apt, which signs the index: `make apt VERSION=0.2.1`.
 apt:
 	@test -n "$(VERSION)" || { echo "usage: make apt VERSION=<released version>"; exit 1; }
-	gh workflow run publish.yml --repo wikilayer/apt -f repository=wikilayer/wlget -f tag=v$(VERSION)
+	@set -e; \
+	    since=$$(date -u +%Y-%m-%dT%H:%M:%SZ); \
+	    gh workflow run publish.yml --repo wikilayer/apt -f repository=wikilayer/wlget -f tag=v$(VERSION); \
+	    run=""; for _ in 1 2 3 4 5 6 7 8 9 10; do \
+	        sleep 3; \
+	        run=$$(gh run list --repo wikilayer/apt --workflow publish.yml --event workflow_dispatch --created ">=$$since" --limit 1 --json databaseId --jq '.[0].databaseId // empty'); \
+	        test -z "$$run" || break; \
+	    done; \
+	    test -n "$$run" || { echo "the Publish run did not appear in wikilayer/apt"; exit 1; }; \
+	    gh run watch "$$run" --repo wikilayer/apt --exit-status
 
 # Publishes the Homebrew formula for an existing tag to wikilayer/homebrew-tap,
 # building from the tag's source archive: `make formula VERSION=0.1.0`.

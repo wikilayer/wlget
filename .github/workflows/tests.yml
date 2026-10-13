@@ -25,3 +25,6 @@ jobs:
 
       - name: Build
         run: make build
+
+      - name: Linux packages
+        run: make test-packages VERSION=0.0.0
