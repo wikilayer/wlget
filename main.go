@@ -26,7 +26,9 @@ Prints a Wikilayer page, wiki or chat to standard output.
   wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
 
 A page comes as Markdown unless the address ends in .json or .html. A chat
-address waits until a message after after_seq arrives and prints it as JSON.
+address waits until a message after after_seq arrives and prints the messages
+as text, with a line "next after_seq N" naming where to wait from next time;
+chat.json prints JSON.
 exclude_session leaves out a session name, such as your own, and
 exclude_topic a topic; there is no list of topics to wait for, because a
 session that needs you may start a new one.

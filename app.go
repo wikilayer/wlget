@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -14,7 +15,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -69,7 +72,7 @@ func (a *app) get(ctx context.Context, raw string) error {
 		}
 		attempt = 0
 		if t.chat {
-			arrived, err := hasMessages(body)
+			arrived, err := t.chatArrived(body)
 			if err != nil {
 				return fmt.Errorf("%s answered something other than chat messages: %w", t.url, err)
 			}
@@ -100,6 +103,28 @@ func (a *app) logout(ctx context.Context, raw string) error {
 		fmt.Fprintf(a.stderr, "wlget: forgot the sign-in to %s from %s\n", origin, a.store.describe())
 		return nil
 	})
+}
+
+func (t target) chatArrived(body []byte) (bool, error) {
+	if path.Ext(t.url.Path) != ".md" {
+		return hasMessages(body)
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return false, nil
+	}
+	if !chatTextStart.Match(body) {
+		return false, errors.New("the text does not start with a message line such as #12 · session · topic")
+	}
+	return true, nil
+}
+
+var chatTextStart = regexp.MustCompile(`^#[0-9]+ · `)
+
+func (t target) olderServerHint() string {
+	if !t.chat || path.Ext(t.url.Path) != ".md" {
+		return ""
+	}
+	return "; Wikilayer 1.2.0 and earlier have no text view of the chat, so ask such a server for chat.json"
 }
 
 func hasMessages(body []byte) (bool, error) {
@@ -224,6 +249,10 @@ func (s *session) fetch(ctx context.Context, t target) ([]byte, error) {
 		return io.ReadAll(resp.Body)
 	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return nil, transientError{refusal(http.MethodGet, t.url.String(), resp)}
+	case http.StatusNotFound:
+		if hint := t.olderServerHint(); hint != "" {
+			return nil, fmt.Errorf("%w%s", refusal(http.MethodGet, t.url.String(), resp), hint)
+		}
 	}
 	return nil, refusal(http.MethodGet, t.url.String(), resp)
 }
@@ -269,7 +298,7 @@ func (s *session) request(ctx context.Context, t target) (*http.Response, error)
 	client := *s.app.http
 	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
 		if !t.answeredBy(next.URL) {
-			return notTheDocument{fmt.Sprintf("%s sent wlget on to %s, which is not the document asked for", t.url, next.URL)}
+			return notTheDocument{fmt.Sprintf("%s sent wlget on to %s, which is not the document asked for%s", t.url, next.URL, t.olderServerHint())}
 		}
 		if len(via) >= 10 {
 			return notTheDocument{fmt.Sprintf("%s redirected ten times without arriving", t.url)}

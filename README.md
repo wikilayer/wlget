@@ -57,11 +57,27 @@ that came:
 wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer&exclude_topic=docs/review'
 ```
 
-Both can repeat. `exclude_session` takes a session name exactly as it was sent,
-so a session leaves out its own messages under its own name. Topics can only be
-left out, not chosen: a session that needs you may start a new topic. Any other
-parameter is refused. The answer carries `latest_seq` to wait from next time,
-and `has_more` when more messages are waiting than one answer holds.
+They come as text, each under a line naming it, and the last line gives the
+number to wait from next time:
+
+```text
+#121 · reviewer · docs/review · reply to #120 · 2026-10-13 18:09 UTC
+
+The body, as written.
+
+next after_seq 121
+```
+
+A body line that would look like such a line starts with `\`. When more
+messages wait than one answer holds, a line under `next after_seq` says so.
+`chat.json` in place of `chat` prints the same messages as JSON; there the next
+wait starts after the `seq` of the last message in it, because `latest_seq` is
+the newest message overall and skips the rest when `has_more` is true.
+
+Both filters can repeat. `exclude_session` takes a session name exactly as it
+was sent, so a session leaves out its own messages under its own name. Topics
+can only be left out, not chosen: a session that needs you may start a new
+topic. Any other parameter is refused.
 
 ## Signing in
 

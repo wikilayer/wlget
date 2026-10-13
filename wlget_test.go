@@ -39,6 +39,8 @@ type fakeServer struct {
 	chatPages          []string
 	chatAsked          atomic.Int32
 	chatStatus         int
+	chatTextMissing    bool
+	chatPathsAsked     []string
 	unavailable        atomic.Int32
 	device             bool
 	deviceAnswer       func(deviceCode string) string
@@ -63,6 +65,8 @@ func newFakeServer(t *testing.T) *fakeServer {
 	mux.HandleFunc("GET /oauth/authorize", f.authorize)
 	mux.HandleFunc("POST /oauth/token", f.token)
 	mux.HandleFunc("GET /chat", f.chat)
+	mux.HandleFunc("GET /chat.json", f.chat)
+	mux.HandleFunc("GET /chat.md", f.chat)
 	mux.HandleFunc("GET /", f.page)
 	f.Server = httptest.NewServer(mux)
 	t.Cleanup(f.Close)
@@ -240,6 +244,13 @@ func (f *fakeServer) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	if f.chatStatus != 0 {
 		writeJSON(w, f.chatStatus, map[string]any{"error": "account_chat_disabled"})
+		return
+	}
+	f.mu.Lock()
+	f.chatPathsAsked = append(f.chatPathsAsked, r.URL.Path)
+	f.mu.Unlock()
+	if f.chatTextMissing && r.URL.Path == "/chat.md" {
+		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
 	asked := int(f.chatAsked.Add(1))
@@ -510,11 +521,49 @@ func TestGet_ChatWaitsUntilSomethingArrives(t *testing.T) {
 	server.chatPages = []string{empty, empty, arrived}
 	h := newHarness(t)
 
-	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"))
+	require.NoError(t, h.get(t, server.URL+"/chat.json?after_seq=7"))
 
 	assert.Equal(t, int32(3), server.chatAsked.Load(),
 		"an empty answer means the server's wait ran out, and the reader asked to be told when something comes")
 	assert.JSONEq(t, arrived, h.stdout.String())
+}
+
+func TestGet_ChatComesAsTextUnlessJSONIsAskedFor(t *testing.T) {
+	server := newFakeServer(t)
+	arrived := "#8 · writer · docs/review · 2026-10-13 18:00 UTC\n\nReady\n\nnext after_seq 8\n"
+	server.chatPages = []string{"", "", arrived}
+	h := newHarness(t)
+
+	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"))
+
+	assert.Equal(t, int32(3), server.chatAsked.Load(),
+		"an empty text answer means the server's wait ran out, as an empty list of messages does")
+	assert.Equal(t, arrived, h.stdout.String())
+	assert.Equal(t, []string{"/chat.md", "/chat.md", "/chat.md"}, server.chatPathsAsked,
+		"a chat address without an ending reads as text, as a page does")
+}
+
+func TestGet_NamesTheJSONChatForAServerWithoutTheText(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatTextMissing = true
+	h := newHarness(t)
+
+	err := h.get(t, server.URL+"/chat?after_seq=7")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "chat.json",
+		"Wikilayer 1.2.0 takes /chat.md for an account name and redirects to its front page, and the reader needs to know what to ask instead")
+}
+
+func TestGet_RefusesTextThatIsNotChatMessages(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{"<html>Sign in to the Wi-Fi</html>"}
+	h := newHarness(t)
+
+	err := h.get(t, server.URL+"/chat?after_seq=7")
+
+	require.Error(t, err, "a captive portal's page printed as chat would pass for news")
+	assert.Empty(t, h.stdout.String())
 }
 
 func TestGet_WaitsOutAServerThatIsRestarting(t *testing.T) {
@@ -524,7 +573,7 @@ func TestGet_WaitsOutAServerThatIsRestarting(t *testing.T) {
 	h := newHarness(t)
 	h.app.pause = func(int) time.Duration { return time.Millisecond }
 
-	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"),
+	require.NoError(t, h.get(t, server.URL+"/chat.json?after_seq=7"),
 		"a deploy restarts the server under every agent waiting on the chat, and each of them died with a 502")
 
 	assert.Contains(t, h.stderr.String(), "502")
@@ -536,12 +585,12 @@ func TestGet_WaitsOutARestartRightAfterSigningInAgain(t *testing.T) {
 	server.chatPages = []string{`{"messages":[{"seq":8}],"latest_seq":8,"has_more":false}`}
 	h := newHarness(t)
 	h.app.pause = func(int) time.Duration { return time.Millisecond }
-	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"))
+	require.NoError(t, h.get(t, server.URL+"/chat.json?after_seq=7"))
 	h.stdout.Reset()
 	server.revokeAll()
 	server.unavailable.Store(1)
 
-	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"),
+	require.NoError(t, h.get(t, server.URL+"/chat.json?after_seq=7"),
 		"the request made with the new sign-in met the same deploy, and only the first request was ever retried")
 	assert.Contains(t, h.stderr.String(), "trying again")
 }
@@ -619,7 +668,7 @@ func TestGet_RefusesAChatAnswerWithoutMessages(t *testing.T) {
 			server.chatPages = []string{body}
 			h := newHarness(t)
 
-			err := h.get(t, server.URL+"/chat?after_seq=0")
+			err := h.get(t, server.URL+"/chat.json?after_seq=0")
 
 			require.Error(t, err, "taken for an empty wait, it would be asked again for ever and the agent would never hear why")
 			assert.Equal(t, int32(1), server.chatAsked.Load())

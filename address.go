@@ -47,7 +47,12 @@ func resolve(raw string) (target, error) {
 	}
 	u.Fragment = ""
 	u.RawFragment = ""
-	if u.Path == chatPath {
+	switch u.Path {
+	case chatPath:
+		u.Path = chatPath + ".md"
+		u.RawPath = ""
+		return target{url: u, chat: true, exact: true}, nil
+	case chatPath + ".md", chatPath + ".json":
 		return target{url: u, chat: true, exact: true}, nil
 	}
 	if strings.HasPrefix(u.Path, storedPrefix) {

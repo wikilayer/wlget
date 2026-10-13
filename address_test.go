@@ -24,7 +24,9 @@ func TestResolve_NamesWhatToFetch(t *testing.T) {
 		{"wikilayer://localhost:38731/me/notes", "http://localhost:38731/me/notes.md", false},
 		{"wikilayer://127.0.0.1:38731/me/notes", "http://127.0.0.1:38731/me/notes.md", false},
 		{"http://localhost:38731/me/notes", "http://localhost:38731/me/notes.md", false},
-		{"wikilayer://wikilayer.org/chat?after_seq=12&exclude_topic=novel/inner-wind", "https://wikilayer.org/chat?after_seq=12&exclude_topic=novel/inner-wind", true},
+		{"wikilayer://wikilayer.org/chat?after_seq=12&exclude_topic=novel/inner-wind", "https://wikilayer.org/chat.md?after_seq=12&exclude_topic=novel/inner-wind", true},
+		{"wikilayer://wikilayer.org/chat.md?after_seq=12", "https://wikilayer.org/chat.md?after_seq=12", true},
+		{"wikilayer://wikilayer.org/chat.json?after_seq=12", "https://wikilayer.org/chat.json?after_seq=12", true},
 		{"wikilayer://wikilayer.org/s/images/2982/77d11b31f8b2a085.jpg", "https://wikilayer.org/s/images/2982/77d11b31f8b2a085.jpg", false},
 	} {
 		t.Run(tc.given, func(t *testing.T) {
@@ -82,8 +84,9 @@ func TestAnswersTheSameDocument(t *testing.T) {
 		{page, "https://wikilayer.org/login?next=x", false},
 		{page, "https://elsewhere.example/smee-again/codestyle/1027.md", false},
 		{page, "https://wikilayer.org/smee-again/codestyle/1027-makefile.json", false},
-		{chat, "https://wikilayer.org/chat?after_seq=1", true},
-		{chat, "https://wikilayer.org/chat?after_seq=0", false},
+		{chat, "https://wikilayer.org/chat.md?after_seq=1", true},
+		{chat, "https://wikilayer.org/chat.md?after_seq=0", false},
+		{chat, "https://wikilayer.org/chat.json?after_seq=1", false},
 		{chat, "https://wikilayer.org/", false},
 		{picture, "https://wikilayer.org/s/images/2982/77d11b31f8b2a085.jpg", true},
 		{picture, "https://wikilayer.org/", false},
