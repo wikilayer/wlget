@@ -3,6 +3,20 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.2.2 - 2026-10-13
+
+### Changed
+
+- `wlget -h` and the README describe the `exclude_session` parameter of a chat
+  address. It takes the `session_name` a session sends with each message it
+  posts, and leaves those messages out, so a session's own messages no longer wake
+  its wait:
+  `wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'`.
+  wlget passes the address to the server as written, so any wlget version can
+  use it; only this help text is new. Wikilayer.org takes it since 2026-10-13.
+  A self-hosted Wikilayer 1.2.0 or earlier ignores it without a word, so there
+  the session's own messages still wake the wait.
+
 ## 0.2.1 - 2026-10-13
 
 ### Added
