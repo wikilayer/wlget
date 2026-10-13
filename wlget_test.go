@@ -42,6 +42,7 @@ type fakeServer struct {
 	chatTextMissing    bool
 	chatPathsAsked     []string
 	unavailable        atomic.Int32
+	tokenUnavailable   atomic.Int32
 	device             bool
 	deviceAnswer       func(deviceCode string) string
 	deviceCodes        map[string]string
@@ -151,6 +152,12 @@ func (f *fakeServer) authorize(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeServer) token(w http.ResponseWriter, r *http.Request) {
+	if f.tokenUnavailable.Add(-1) >= 0 {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte("<html>503 Service Unavailable</html>"))
+		return
+	}
 	require.NoError(f.t, r.ParseForm())
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -391,6 +398,24 @@ func TestGet_SignsInOnceThenReadsWithTheSavedToken(t *testing.T) {
 	assert.NotNil(t, h.store.saved[server.URL], "the token is kept under the server it came from")
 	assert.Contains(t, h.stderr.String(), server.URL+"/oauth/authorize",
 		"an agent's terminal shows the sign-in address, because the browser may open on a screen nobody is looking at")
+}
+
+func TestGet_WaitsOutARestartWhileRenewingTheSignIn(t *testing.T) {
+	server := newFakeServer(t)
+	server.pages["/me/notes.md"] = "# Notes\n"
+	h := newHarness(t)
+	h.app.pause = func(int) time.Duration { return time.Millisecond }
+	require.NoError(t, h.get(t, server.URL+"/me/notes"))
+	h.stdout.Reset()
+	h.store.saved[server.URL].Token.Expiry = time.Now().Add(-time.Minute)
+	server.tokenUnavailable.Store(2)
+
+	require.NoError(t, h.get(t, server.URL+"/me/notes"),
+		"a token that ran out while the server restarted stopped wlget, though any other read waits the restart out")
+
+	assert.Equal(t, "# Notes\n", h.stdout.String())
+	assert.Contains(t, h.stderr.String(), "trying again")
+	assert.Equal(t, int32(1), h.opened.Load(), "a restart is no reason to sign in again")
 }
 
 func TestGet_RefreshesAnExpiredTokenWithoutAskingAgain(t *testing.T) {

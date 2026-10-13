@@ -191,6 +191,7 @@ func (a *app) locked(ctx context.Context, origin string, change func() error) er
 		if _, err := lock.TryLockContext(ctx, 50*time.Millisecond); err != nil {
 			return fmt.Errorf("waiting for another wlget to finish with the sign-in to %s: %w", origin, err)
 		}
+		fmt.Fprintf(a.stderr, "wlget: the other wlget is done with the sign-in to %s, going on\n", origin)
 	}
 	defer func() {
 		if err := lock.Unlock(); err != nil {
@@ -344,6 +345,12 @@ func (s *session) renew(ctx context.Context) error {
 			return fmt.Errorf("forgetting the sign-in %s no longer renews: %w", s.origin, err)
 		}
 		return s.signIn(ctx)
+	}
+	if errors.As(err, &refused) && refused.Response != nil {
+		switch refused.Response.StatusCode {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return transientError{fmt.Errorf("renewing the sign-in to %s: %s", s.origin, refused.Response.Status)}
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("renewing the sign-in to %s: %w", s.origin, err)

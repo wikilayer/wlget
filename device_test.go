@@ -196,6 +196,8 @@ func TestLocked_SaysWhatItWaitsFor(t *testing.T) {
 		5*time.Second, 10*time.Millisecond, "a second wlget waits silently while the first one waits for a code to be approved")
 	close(release)
 	require.NoError(t, <-done)
+	assert.Contains(t, h.stderr.String(), "is done with the sign-in",
+		"without a word that the wait for the lock is over, a quiet chat wait after it reads as a wlget stuck on the lock")
 }
 
 func TestKeychainFailure_NamesTheFileStore(t *testing.T) {
