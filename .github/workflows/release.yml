@@ -16,17 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-      - name: Install tools
-        run: make install-tools
-      - name: Build
-        run: make build
-      - name: Publish GitHub release
+      - name: Check the version
         env:
-          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
@@ -42,5 +33,23 @@ jobs:
             echo "version must match the latest CHANGELOG entry: $CHANGELOG_VERSION" >&2
             exit 1
           fi
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install tools
+        run: make install-tools
+      - name: Build
+        run: make build
+      - name: Build Linux packages
+        env:
+          VERSION: ${{ inputs.version }}
+        run: make packages VERSION="$VERSION"
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
           NOTES="$(sed -n "/^## ${VERSION} /,/^## /p" CHANGELOG.md | sed '1d;$d')"
-          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --notes "$NOTES"
+          gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --notes "$NOTES" \
+            dist/*.tar.gz dist/*.deb dist/*.sha256

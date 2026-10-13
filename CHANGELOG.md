@@ -5,6 +5,13 @@ Notable changes to `wlget` are documented here in the format of
 
 ## [Unreleased]
 
+### Added
+
+- Debian and Ubuntu install wlget with `apt install wlget` from the Wikilayer
+  APT repository, for amd64 and arm64, and `apt upgrade` brings new versions.
+  Each release also carries the `.deb` packages and `.tar.gz` archives of the
+  Linux binary, with their SHA-256 sums.
+
 ### Fixed
 
 - `wlget -h` no longer says the first read always signs in in the browser; it
