@@ -1,0 +1,56 @@
+name: wlget-e2e
+
+x-go: &go
+  image: golang:${GO_VERSION:?}-bookworm
+  environment: &goenv
+    GOFLAGS: -buildvcs=false
+    GOCACHE: /cache/build
+    GOMODCACHE: /cache/mod
+  volumes: &govolumes
+    - gocache:/cache
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: wikilayer
+      POSTGRES_PASSWORD: wikilayer
+      POSTGRES_DB: wikilayer
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "wikilayer"]
+      interval: 1s
+      retries: 30
+
+  wikilayer:
+    <<: *go
+    working_dir: /src
+    volumes:
+      - gocache:/cache
+      - ${WIKILAYER_SRC:?}:/src:ro
+    environment:
+      <<: *goenv
+      DATABASE_URL: postgres://wikilayer:wikilayer@db:5432/wikilayer?sslmode=disable
+      BASE_URL: http://wikilayer:8080
+      LOGIN_PASSWORDS: "tester:$$2a$$10$$qGQjCqX2Cuuv6eDxfAmFleickgSZ.FAIZkRI4ykv.D.OAWxDnGrDq"
+    command: ["sh", "-c", "go build -o /tmp/wikilayer ./cmd/wikilayer && /tmp/wikilayer migrate && exec /tmp/wikilayer serve -addr :8080"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/.well-known/oauth-authorization-server"]
+      interval: 2s
+      retries: 150
+
+  wlget:
+    <<: *go
+    working_dir: /src
+    volumes:
+      - gocache:/cache
+      - ..:/src:ro
+    command: ["sh", "/src/e2e/run.sh"]
+    depends_on:
+      wikilayer:
+        condition: service_healthy
+
+volumes:
+  gocache:

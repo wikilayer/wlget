@@ -83,12 +83,13 @@ func (a *app) get(ctx context.Context, raw string) error {
 }
 
 func (a *app) logout(ctx context.Context, raw string) error {
-	t, err := resolve(raw)
+	server, err := serverAddress(raw)
 	if err != nil {
 		return err
 	}
-	return a.locked(ctx, t.origin(), func() error {
-		return a.store.remove(t.origin())
+	origin := target{url: server}.origin()
+	return a.locked(ctx, origin, func() error {
+		return a.store.remove(origin)
 	})
 }
 

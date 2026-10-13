@@ -660,6 +660,18 @@ func TestLogout_ForgetsTheServersToken(t *testing.T) {
 	assert.Nil(t, h.store.saved[server.URL])
 }
 
+func TestLogout_TakesTheServersOwnAddress(t *testing.T) {
+	server := newFakeServer(t)
+	server.pages["/me/notes.md"] = "# Notes\n"
+	h := newHarness(t)
+	require.NoError(t, h.get(t, server.URL+"/me/notes"))
+
+	require.NoError(t, h.app.logout(context.Background(), server.URL+"/"),
+		"the README tells readers to log out with the server's address, and wlget refused it as naming no page")
+
+	assert.Nil(t, h.store.saved[server.URL])
+}
+
 func TestCredentials_SurviveTheRoundTripThroughText(t *testing.T) {
 	saved := &credentials{
 		ClientID:    "client-1",

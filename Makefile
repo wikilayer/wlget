@@ -11,7 +11,7 @@ CI_GO := go$(shell awk '/^go /{print $$2}' go.mod)
 # machine reached over SSH that wlget has to sign in from without either.
 LINUX_IMAGE := golang:$(patsubst go%,%,$(CI_GO))-bookworm
 
-.PHONY: install-tools format comments lint test-build test test-linux build formula
+.PHONY: install-tools format comments lint test-build test test-linux test-e2e build formula
 
 install-tools:
 	GOTOOLCHAIN=$(CI_GO) go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
@@ -38,6 +38,15 @@ test:
 
 test-linux:
 	docker run --rm -v "$(CURDIR)":/src -w /src -e GOFLAGS=-buildvcs=false $(LINUX_IMAGE) go test -count=1 ./...
+
+# Signs in from another device against a Wikilayer server built from
+# WIKILAYER_SRC, inside the same kind of container.
+WIKILAYER_SRC ?= $(CURDIR)/../wikilayer
+
+test-e2e:
+	GO_VERSION=$(patsubst go%,%,$(CI_GO)) WIKILAYER_SRC=$(WIKILAYER_SRC) \
+	    docker compose -f e2e/compose.yaml up --abort-on-container-exit --exit-code-from wlget; \
+	    status=$$?; docker compose -f e2e/compose.yaml down -v >/dev/null 2>&1; exit $$status
 
 build: lint test-build test
 	mkdir -p bin

@@ -19,10 +19,10 @@ const (
 	storedPrefix = "/s/"
 )
 
-func resolve(raw string) (target, error) {
+func serverAddress(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return target{}, fmt.Errorf("%q is not an address: %w", raw, err)
+		return nil, fmt.Errorf("%q is not an address: %w", raw, err)
 	}
 	switch u.Scheme {
 	case "wikilayer":
@@ -32,10 +32,18 @@ func resolve(raw string) (target, error) {
 		}
 	case "https", "http":
 	default:
-		return target{}, fmt.Errorf("%q is not an address wlget reads: it starts with wikilayer://, https:// or http://", raw)
+		return nil, fmt.Errorf("%q is not an address wlget reads: it starts with wikilayer://, https:// or http://", raw)
 	}
 	if u.Host == "" {
-		return target{}, fmt.Errorf("%q names no server", raw)
+		return nil, fmt.Errorf("%q names no server", raw)
+	}
+	return u, nil
+}
+
+func resolve(raw string) (target, error) {
+	u, err := serverAddress(raw)
+	if err != nil {
+		return target{}, err
 	}
 	u.Fragment = ""
 	u.RawFragment = ""
