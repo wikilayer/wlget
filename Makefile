@@ -71,11 +71,15 @@ packages:
 	cd dist && for f in *.tar.gz *.deb; do shasum -a 256 "$$f" > "$$f.sha256"; done
 
 # Checks that each .deb names its own architecture, then installs the one for
-# this machine in a clean Debian container and runs it.
+# this machine in a clean Debian container, which has no CA certificates of its
+# own, and runs it.
 test-packages: packages
 	docker run --rm -v "$(CURDIR)/dist":/dist:ro debian:bookworm sh -c \
 	    'set -e; for arch in $(LINUX_ARCHES); do test "$$(dpkg-deb --field /dist/wlget_$(VERSION)_$$arch.deb Architecture)" = $$arch; done; \
-	     apt-get update -qq && apt-get install -qq -y /dist/wlget_$(VERSION)_$$(dpkg --print-architecture).deb >/dev/null && test "$$(wlget -version)" = "$(VERSION)" && wlget -h 2>&1 | head -1'
+	     test ! -e /etc/ssl/certs/ca-certificates.crt; \
+	     apt-get update -qq && apt-get install -qq -y /dist/wlget_$(VERSION)_$$(dpkg --print-architecture).deb >/dev/null; \
+	     test -s /etc/ssl/certs/ca-certificates.crt || { echo "wlget installed without the CA certificates it needs for https"; exit 1; }; \
+	     test "$$(wlget -version)" = "$(VERSION)" && wlget -h 2>&1 | head -1'
 
 # Publishes the release's .deb packages to the APT repository at
 # wikilayer/apt, which signs the index: `make apt VERSION=0.2.1`.

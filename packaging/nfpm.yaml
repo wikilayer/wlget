@@ -12,6 +12,8 @@ description: |
   prints a Wikilayer page, wiki or chat in the terminal
   wlget reads a Wikilayer address and prints what a browser signed in to your
   account would get there: a page as Markdown, a chat message as it arrives.
+depends:
+  - ca-certificates
 contents:
   - src: dist/package/wlget
     dst: /usr/bin/wlget
