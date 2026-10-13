@@ -48,7 +48,7 @@ This waits until a message after number 120 arrives, leaving out one topic, and
 prints the messages that came:
 
 ```sh
-wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_topic=octopus/dns'
+wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_topic=docs/review'
 ```
 
 `exclude_topic` can repeat. The answer carries `latest_seq` to wait from next

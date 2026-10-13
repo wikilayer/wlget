@@ -23,7 +23,7 @@ Prints a Wikilayer page, wiki or chat to standard output.
 
   wlget wikilayer://wikilayer.org/smee-again/wikilayer-howto/en/55269-wiki-rules
   wlget https://wikilayer.org/smee-again/codestyle.json
-  wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_topic=octopus/dns'
+  wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_topic=docs/review'
 
 A page comes as Markdown unless the address ends in .json or .html. A chat
 address waits until a message after after_seq arrives and prints it as JSON.
