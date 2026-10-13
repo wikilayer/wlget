@@ -3,20 +3,24 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## 0.2.0 - 2026-10-13
 
 ### Added
 
 - wlget signs in on a machine with no browser, such as a server reached over
-  SSH: it prints an address and a code, and you approve the sign-in on your
-  phone or computer. It does so on its own in an SSH session or where neither
-  `DISPLAY` nor `WAYLAND_DISPLAY` is set, says why, and takes `-signin=browser`
-  or `-signin=device` (or `WLGET_SIGNIN`) to choose otherwise. The server has to
-  offer this sign-in; wlget names the way out when it does not.
+  SSH: it prints an address and a code on standard error, and you approve the
+  sign-in on your phone or computer. It picks this on its own in an SSH session,
+  and on Linux and other Unix systems where neither `DISPLAY` nor
+  `WAYLAND_DISPLAY` is set; on a Mac outside SSH it keeps opening the browser.
+  It prints why it chose, and `-signin=browser` or `-signin=device`, or
+  `WLGET_SIGNIN` with the same values, chooses otherwise. Wikilayer.org offers
+  this sign-in; against a server that does not, wlget says so and suggests
+  `-signin=browser`.
 - `-store=file` (or `WLGET_STORE=file`) keeps the sign-in in a file only your
-  account can read, for a machine with no system keychain. Without it, a missing
-  keychain stops wlget with a message naming this option. Windows cannot make a
-  file only one account reads, so there wlget refuses this option.
+  account can read, under `wlget/signins` in the user configuration directory
+  (`~/.config` on Linux), for a machine with no system keychain. Without it, a
+  missing keychain stops wlget with a message naming this option. Windows cannot
+  make a file only one account reads, so there wlget refuses this option.
 - A wlget that waits while another one signs in or renews says so, instead of
   waiting in silence.
 
