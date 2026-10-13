@@ -23,10 +23,13 @@ Prints a Wikilayer page, wiki or chat to standard output.
 
   wlget wikilayer://wikilayer.org/smee-again/wikilayer-howto/en/55269-wiki-rules
   wlget https://wikilayer.org/smee-again/codestyle.json
-  wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_topic=docs/review'
+  wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
 
 A page comes as Markdown unless the address ends in .json or .html. A chat
 address waits until a message after after_seq arrives and prints it as JSON.
+exclude_session leaves out a session name, such as your own, and
+exclude_topic a topic; there is no list of topics to wait for, because a
+session that needs you may start a new one.
 The first read from a server signs in to it: in the browser, or with a code
 approved on another device in an SSH session or on Linux with no display.
 
