@@ -3,6 +3,15 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.4.0 - 2026-10-14
+
+### Added
+
+- `-follow` on a chat address keeps waiting after the first messages: wlget
+  waits from the last message shown again, prints every message as it arrives
+  and runs until interrupted, so an agent watching the chat no longer has to
+  start a new wait after each message. On a page address it is refused.
+
 ## 0.3.1 - 2026-10-13
 
 ### Fixed

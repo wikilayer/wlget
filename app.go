@@ -36,6 +36,7 @@ type app struct {
 	lockDir    string
 	store      credentialStore
 	signInWith signInChoice
+	follow     bool
 	open       func(ctx context.Context, address string) error
 	pause      func(attempt int) time.Duration
 	http       *http.Client
@@ -47,6 +48,9 @@ func (a *app) get(ctx context.Context, raw string) error {
 	t, err := resolve(raw)
 	if err != nil {
 		return err
+	}
+	if a.follow && !t.chat {
+		return fmt.Errorf("-follow keeps waiting on a chat address, and %s is not one: a page is printed once", raw)
 	}
 	session, err := a.session(ctx, t.origin())
 	if err != nil {
@@ -80,9 +84,49 @@ func (a *app) get(ctx context.Context, raw string) error {
 				continue
 			}
 		}
-		_, err = a.stdout.Write(body)
-		return err
+		if _, err := a.stdout.Write(body); err != nil || !a.follow {
+			return err
+		}
+		next, err := t.lastShown(body)
+		if err != nil {
+			return fmt.Errorf("%s answered chat messages without saying where to wait from next: %w", t.url, err)
+		}
+		t = t.after(next)
 	}
+}
+
+var nextAfterLine = regexp.MustCompile(`(?m)^next after_seq ([0-9]+)$`)
+
+func (t target) lastShown(body []byte) (string, error) {
+	if path.Ext(t.url.Path) == ".md" {
+		found := nextAfterLine.FindAllSubmatch(body, -1)
+		if len(found) == 0 {
+			return "", errors.New("the text has no line next after_seq N")
+		}
+		return string(found[len(found)-1][1]), nil
+	}
+	var answer struct {
+		Messages []struct {
+			Seq int64 `json:"seq"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		return "", err
+	}
+	var last int64
+	for _, m := range answer.Messages {
+		last = max(last, m.Seq)
+	}
+	return fmt.Sprint(last), nil
+}
+
+func (t target) after(seq string) target {
+	next := *t.url
+	query := next.Query()
+	query.Set("after_seq", seq)
+	next.RawQuery = query.Encode()
+	t.url = &next
+	return t
 }
 
 func (a *app) logout(ctx context.Context, raw string) error {

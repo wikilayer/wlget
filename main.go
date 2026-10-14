@@ -17,18 +17,20 @@ import (
 
 var version string
 
-const usage = `Usage: wlget [-logout] <address>
+const usage = `Usage: wlget [-logout] [-follow] <address>
 
 Prints a Wikilayer page, wiki or chat to standard output.
 
   wlget wikilayer://wikilayer.org/smee-again/wikilayer-howto/en/55269-wiki-rules
   wlget https://wikilayer.org/smee-again/codestyle.json
   wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
+  wlget -follow 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
 
 A page comes as Markdown unless the address ends in .json or .html. A chat
 address waits until a message after after_seq arrives and prints the messages
 as text, with a line "next after_seq N" naming where to wait from next time;
-chat.json prints JSON.
+chat.json prints JSON. With -follow it does not stop there: it waits from
+that point again and prints every message as it arrives, until interrupted.
 exclude_session leaves out a session name, such as your own, and
 exclude_topic a topic; there is no list of topics to wait for, because a
 session that needs you may start a new one.
@@ -51,6 +53,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
 	showVersion := flags.Bool("version", false, "print the version")
+	follow := flags.Bool("follow", false, "on a chat address, keep waiting and print every message as it arrives")
 	signInFlag := flags.String("signin", "", "how to sign in: browser, or device to approve a code on another device (default: device in an SSH session or on Linux with no display, browser otherwise; also WLGET_SIGNIN)")
 	storeFlag := flags.String("store", "", "where to keep the sign-in: keychain, or file for a file only your account can read (default keychain; also WLGET_STORE)")
 	if err := flags.Parse(args); err != nil {
@@ -84,6 +87,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		lockDir:    filepath.Join(cache, "wlget"),
 		store:      store,
 		signInWith: signInWith,
+		follow:     *follow,
 		open:       openBrowser,
 		pause:      backoff,
 		http:       &http.Client{Timeout: 90 * time.Second},

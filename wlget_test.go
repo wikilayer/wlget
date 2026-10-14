@@ -41,6 +41,7 @@ type fakeServer struct {
 	chatStatus         int
 	chatTextMissing    bool
 	chatPathsAsked     []string
+	chatAfterAsked     []string
 	unavailable        atomic.Int32
 	tokenUnavailable   atomic.Int32
 	device             bool
@@ -255,6 +256,7 @@ func (f *fakeServer) chat(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Lock()
 	f.chatPathsAsked = append(f.chatPathsAsked, r.URL.Path)
+	f.chatAfterAsked = append(f.chatAfterAsked, r.URL.Query().Get("after_seq"))
 	f.mu.Unlock()
 	if f.chatTextMissing && r.URL.Path == "/chat.md" {
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -566,6 +568,40 @@ func TestGet_ChatComesAsTextUnlessJSONIsAskedFor(t *testing.T) {
 	assert.Equal(t, arrived, h.stdout.String())
 	assert.Equal(t, []string{"/chat.md", "/chat.md", "/chat.md"}, server.chatPathsAsked,
 		"a chat address without an ending reads as text, as a page does")
+}
+
+func TestGet_FollowPrintsEachMessageAndWaitsOnFromIt(t *testing.T) {
+	server := newFakeServer(t)
+	first := "#8 · writer · docs/review · 2026-10-13 18:00 UTC\n\nReady\n\nnext after_seq 8\n"
+	second := "#9 · reviewer · docs/review · reply to #8 · 2026-10-13 18:01 UTC\n\nRead it\n\nnext after_seq 9\n"
+	server.chatPages = []string{first, "", second, ""}
+	h := newHarness(t)
+	h.app.follow = true
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	stopped := make(chan error)
+	go func() { stopped <- h.app.get(ctx, server.URL+"/chat?after_seq=7&exclude_session=me") }()
+
+	require.Eventually(t, func() bool { return server.chatAsked.Load() >= 5 }, 5*time.Second, time.Millisecond)
+	cancel()
+
+	assert.ErrorIs(t, <-stopped, context.Canceled, "only an interrupt ends a follow")
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	assert.Equal(t, []string{"7", "8", "8", "9", "9"}, server.chatAfterAsked[:5],
+		"each wait starts after the last message shown, so none is printed twice and none is skipped")
+	assert.Equal(t, first+second, h.stdout.String())
+}
+
+func TestGet_FollowRefusesAPage(t *testing.T) {
+	server := newFakeServer(t)
+	h := newHarness(t)
+	h.app.follow = true
+
+	err := h.get(t, server.URL+"/me/notes")
+
+	require.Error(t, err, "a page does not change while it is read, so following it would print it once and then hang")
+	assert.Contains(t, err.Error(), "chat")
 }
 
 func TestGet_NamesTheJSONChatForAServerWithoutTheText(t *testing.T) {

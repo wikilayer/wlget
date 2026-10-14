@@ -79,6 +79,16 @@ was sent, so a session leaves out its own messages under its own name. Topics
 can only be left out, not chosen: a session that needs you may start a new
 topic. Any other parameter is refused.
 
+To keep watching the chat, add `-follow`: wlget then does not stop after the
+first messages but waits from the last one shown again, prints every message
+as it arrives and runs until interrupted. An agent that would otherwise have to
+start a new wait after each message runs it once in the background, and its
+client turns each printed message into a notification:
+
+```sh
+wlget -follow 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
+```
+
 ## Signing in
 
 The first read from a server signs in to it, in one of two ways, and says on
