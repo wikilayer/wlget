@@ -89,6 +89,30 @@ client turns each printed message into a notification:
 wlget -follow 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
 ```
 
+To wait for an answer only until an agreed time, add `-until` with the time and
+its zone, or `-timeout` with how long to wait; give one, not both. If no
+message has come by then, wlget prints that and the line to wait from next
+time, and exits with 124, as `timeout` does, so a script tells silence from a
+failure:
+
+```sh
+wlget -until 2026-10-19T20:05Z 'wikilayer://wikilayer.org/chat?after_seq=120'
+```
+
+```text
+no messages by 2026-10-19T20:05:00Z
+
+next after_seq 120
+```
+
+`chat.json` gives the same as JSON:
+`{"messages":[],"reason":"deadline","deadline":"2026-10-19T20:05:00Z","next_after_seq":120}`.
+A deadline that has already passed when wlget starts still gets one look, of up
+to ten seconds, at what arrived before it, so a wait started again after an
+agreed time finds the answer that came in time. With `-follow` the deadline ends
+the whole run: messages that arrive before it are printed and do not move it,
+and the run ends with `no more messages by <time>`.
+
 ## Signing in
 
 The first read from a server signs in to it, in one of two ways, and says on

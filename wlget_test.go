@@ -40,6 +40,7 @@ type fakeServer struct {
 	chatAsked          atomic.Int32
 	chatStatus         int
 	chatTextMissing    bool
+	chatHeldOpen       bool
 	chatPathsAsked     []string
 	chatAfterAsked     []string
 	unavailable        atomic.Int32
@@ -263,6 +264,10 @@ func (f *fakeServer) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	asked := int(f.chatAsked.Add(1))
+	if f.chatHeldOpen {
+		<-r.Context().Done()
+		return
+	}
 	_, _ = w.Write([]byte(f.chatPages[min(asked, len(f.chatPages))-1]))
 }
 
@@ -591,6 +596,127 @@ func TestGet_FollowPrintsEachMessageAndWaitsOnFromIt(t *testing.T) {
 	assert.Equal(t, []string{"7", "8", "8", "9", "9"}, server.chatAfterAsked[:5],
 		"each wait starts after the last message shown, so none is printed twice and none is skipped")
 	assert.Equal(t, first+second, h.stdout.String())
+}
+
+func TestGet_ChatStopsAtTheDeadlineAndSaysWhereToWaitFrom(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{""}
+	h := newHarness(t)
+	h.app.until = time.Now().Add(200 * time.Millisecond)
+
+	err := h.get(t, server.URL+"/chat?after_seq=7")
+
+	var reached deadlineReached
+	require.ErrorAs(t, err, &reached, "a deadline that passes in silence is its own outcome, not a failure to read")
+	assert.Equal(t, "no messages by "+h.app.until.UTC().Format(time.RFC3339)+"\n\nnext after_seq 7\n", h.stdout.String(),
+		"the wait is started again from the same line a message would have ended with")
+}
+
+func TestGet_DeadlineEndsAWaitTheServerHoldsOpen(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatHeldOpen = true
+	h := newHarness(t)
+	h.app.until = time.Now().Add(200 * time.Millisecond)
+	started := time.Now()
+
+	err := h.get(t, server.URL+"/chat?after_seq=7")
+
+	require.ErrorAs(t, err, new(deadlineReached))
+	assert.Less(t, time.Since(started), 5*time.Second,
+		"the server keeps a quiet wait open for a long time, and the deadline does not wait for it to end")
+}
+
+func TestGet_ChatJSONStopsAtTheDeadlineWithAnAnswerOfTheSameKind(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{`{"messages":[],"latest_seq":7,"has_more":false}`}
+	h := newHarness(t)
+	h.app.until = time.Now().Add(200 * time.Millisecond)
+
+	err := h.get(t, server.URL+"/chat.json?after_seq=7")
+
+	require.ErrorAs(t, err, new(deadlineReached))
+	assert.JSONEq(t, `{"messages":[],"reason":"deadline","deadline":"`+h.app.until.UTC().Format(time.RFC3339)+`","next_after_seq":7}`, h.stdout.String(),
+		"a reader of JSON gets JSON that says why it is empty, not a line of text after it")
+}
+
+func TestGet_ChatThatAnswersBeforeTheDeadlineEndsAsUsual(t *testing.T) {
+	server := newFakeServer(t)
+	arrived := "#8 · writer · docs/review · 2026-10-13 18:00 UTC\n\nReady\n\nnext after_seq 8\n"
+	server.chatPages = []string{"", arrived}
+	h := newHarness(t)
+	h.app.until = time.Now().Add(5 * time.Second)
+
+	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"))
+
+	assert.Equal(t, arrived, h.stdout.String())
+}
+
+func TestGet_FollowEndsAtTheDeadlineAfterWhatArrived(t *testing.T) {
+	server := newFakeServer(t)
+	first := "#8 · writer · docs/review · 2026-10-13 18:00 UTC\n\nReady\n\nnext after_seq 8\n"
+	server.chatPages = []string{first, ""}
+	h := newHarness(t)
+	h.app.follow = true
+	h.app.until = time.Now().Add(300 * time.Millisecond)
+
+	err := h.get(t, server.URL+"/chat?after_seq=7")
+
+	require.ErrorAs(t, err, new(deadlineReached),
+		"a message does not move the deadline, or a busy chat would push it back for ever")
+	assert.Equal(t, first+"no more messages by "+h.app.until.UTC().Format(time.RFC3339)+"\n\nnext after_seq 8\n", h.stdout.String(),
+		"after a message was printed, saying none came would be false")
+}
+
+func TestGet_DeadlineAlreadyPastStillReadsWhatArrivedBeforeIt(t *testing.T) {
+	server := newFakeServer(t)
+	arrived := "#8 · writer · docs/review · 2026-10-13 18:00 UTC\n\nReady\n\nnext after_seq 8\n"
+	server.chatPages = []string{arrived}
+	h := newHarness(t)
+	h.app.until = time.Now().Add(-time.Minute)
+	h.app.lastLook = time.Second
+
+	require.NoError(t, h.get(t, server.URL+"/chat?after_seq=7"),
+		"a wait started again after an agreed deadline still finds the answer that came before it")
+
+	assert.Equal(t, arrived, h.stdout.String())
+}
+
+func TestGet_DeadlineAlreadyPastWithNothingArrivedStopsAfterOneLook(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatHeldOpen = true
+	h := newHarness(t)
+	h.app.until = time.Now().Add(-time.Minute)
+	h.app.lastLook = 200 * time.Millisecond
+	started := time.Now()
+
+	err := h.get(t, server.URL+"/chat?after_seq=7")
+
+	require.ErrorAs(t, err, new(deadlineReached))
+	assert.Equal(t, int32(1), server.chatAsked.Load(), "the server was asked once before the passed deadline was reported")
+	assert.Less(t, time.Since(started), 5*time.Second)
+}
+
+func TestGet_ChatJSONWithoutACursorStopsAtTheDeadlineFromTheStart(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{`{"messages":[],"latest_seq":0,"has_more":false}`}
+	h := newHarness(t)
+	h.app.until = time.Now().Add(200 * time.Millisecond)
+
+	err := h.get(t, server.URL+"/chat.json")
+
+	require.ErrorAs(t, err, new(deadlineReached), "a wait from the start has a cursor too: the start")
+	assert.Contains(t, h.stdout.String(), `"next_after_seq":0`)
+}
+
+func TestGet_DeadlineRefusesAPage(t *testing.T) {
+	server := newFakeServer(t)
+	h := newHarness(t)
+	h.app.until = time.Now().Add(time.Minute)
+
+	err := h.get(t, server.URL+"/me/notes")
+
+	require.Error(t, err, "a page answers at once, so there is nothing to wait for until the deadline")
+	assert.Contains(t, err.Error(), "chat")
 }
 
 func TestGet_FollowRefusesAPage(t *testing.T) {

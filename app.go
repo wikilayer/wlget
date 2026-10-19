@@ -18,6 +18,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,8 @@ type app struct {
 	store      credentialStore
 	signInWith signInChoice
 	follow     bool
+	until      time.Time
+	lastLook   time.Duration
 	open       func(ctx context.Context, address string) error
 	pause      func(attempt int) time.Duration
 	http       *http.Client
@@ -52,13 +55,30 @@ func (a *app) get(ctx context.Context, raw string) error {
 	if a.follow && !t.chat {
 		return fmt.Errorf("-follow keeps waiting on a chat address, and %s is not one: a page is printed once", raw)
 	}
+	if !a.until.IsZero() && !t.chat {
+		return fmt.Errorf("-until and -timeout end a wait on a chat address, and %s is not one: a page answers at once", raw)
+	}
 	session, err := a.session(ctx, t.origin())
 	if err != nil {
 		return err
 	}
+	waiting := ctx
+	if !a.until.IsZero() {
+		end := a.until
+		if !end.After(time.Now()) {
+			end = time.Now().Add(a.lastLook)
+		}
+		var stop context.CancelFunc
+		waiting, stop = context.WithDeadline(ctx, end)
+		defer stop()
+	}
+	printed := false
 	attempt := 0
 	for {
-		body, err := session.fetch(ctx, t)
+		body, err := session.fetch(waiting, t)
+		if err != nil && a.deadlinePassed(ctx, waiting) {
+			return a.reportDeadline(t, printed)
+		}
 		var unavailable transientError
 		if errors.As(err, &unavailable) && attempt < retryAttempts {
 			wait := a.pause(attempt)
@@ -66,7 +86,10 @@ func (a *app) get(ctx context.Context, raw string) error {
 			fmt.Fprintf(a.stderr, "wlget: %v; trying again in %s\n", err, wait)
 			select {
 			case <-time.After(wait):
-			case <-ctx.Done():
+			case <-waiting.Done():
+				if a.deadlinePassed(ctx, waiting) {
+					return a.reportDeadline(t, printed)
+				}
 				return ctx.Err()
 			}
 			continue
@@ -87,12 +110,55 @@ func (a *app) get(ctx context.Context, raw string) error {
 		if _, err := a.stdout.Write(body); err != nil || !a.follow {
 			return err
 		}
+		printed = true
 		next, err := t.lastShown(body)
 		if err != nil {
 			return fmt.Errorf("%s answered chat messages without saying where to wait from next: %w", t.url, err)
 		}
 		t = t.after(next)
 	}
+}
+
+type deadlineReached struct{ until time.Time }
+
+func (e deadlineReached) Error() string {
+	return "no messages by " + e.until.UTC().Format(time.RFC3339)
+}
+
+func (a *app) deadlinePassed(ctx, waiting context.Context) bool {
+	return ctx.Err() == nil && errors.Is(waiting.Err(), context.DeadlineExceeded)
+}
+
+func (a *app) reportDeadline(t target, printed bool) error {
+	reached := deadlineReached{a.until}
+	seq := t.url.Query().Get("after_seq")
+	if seq == "" {
+		seq = "0"
+	}
+	if path.Ext(t.url.Path) == ".md" {
+		none := "no messages"
+		if printed {
+			none = "no more messages"
+		}
+		if _, err := fmt.Fprintf(a.stdout, "%s by %s\n\nnext after_seq %s\n", none, a.until.UTC().Format(time.RFC3339), seq); err != nil {
+			return err
+		}
+		return reached
+	}
+	next, err := strconv.ParseInt(seq, 10, 64)
+	if err != nil {
+		return fmt.Errorf("%s has an after_seq that is not a number: %w", t.url, err)
+	}
+	answer := struct {
+		Messages     []json.RawMessage `json:"messages"`
+		Reason       string            `json:"reason"`
+		Deadline     string            `json:"deadline"`
+		NextAfterSeq int64             `json:"next_after_seq"`
+	}{[]json.RawMessage{}, "deadline", a.until.UTC().Format(time.RFC3339), next}
+	if err := json.NewEncoder(a.stdout).Encode(answer); err != nil {
+		return err
+	}
+	return reached
 }
 
 var nextAfterLine = regexp.MustCompile(`(?m)^next after_seq ([0-9]+)$`)

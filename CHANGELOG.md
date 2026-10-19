@@ -3,6 +3,22 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.5.0 - 2026-10-19
+
+### Added
+
+- `-until <time>` and `-timeout <duration>` end a chat wait at a deadline. If no
+  message has come by then, wlget prints `no messages by <time>` and the line
+  `next after_seq N`, or in `chat.json` the JSON
+  `{"messages":[],"reason":"deadline","deadline":…,"next_after_seq":N}`, and
+  exits with 124, so an agent waiting for an answer by an agreed time needs no
+  loop of its own beside wlget. The time needs its zone, such as
+  `2026-10-19T20:05Z`; the two flags cannot be given together. A deadline
+  already past at the start still gets one look, of up to ten seconds, at what
+  arrived before it. With `-follow` the deadline ends the whole run, messages
+  arriving before it do not move it, and the run ends with
+  `no more messages by <time>`.
+
 ## 0.4.0 - 2026-10-14
 
 ### Added

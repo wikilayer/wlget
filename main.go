@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -17,7 +18,7 @@ import (
 
 var version string
 
-const usage = `Usage: wlget [-logout] [-follow] <address>
+const usage = `Usage: wlget [-logout] [-follow] [-until <time> | -timeout <duration>] <address>
 
 Prints a Wikilayer page, wiki or chat to standard output.
 
@@ -25,6 +26,7 @@ Prints a Wikilayer page, wiki or chat to standard output.
   wlget https://wikilayer.org/smee-again/codestyle.json
   wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
   wlget -follow 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
+  wlget -until 2026-10-19T20:05Z 'wikilayer://wikilayer.org/chat?after_seq=120'
 
 A page comes as Markdown unless the address ends in .json or .html. A chat
 address waits until a message after after_seq arrives and prints the messages
@@ -34,6 +36,9 @@ that point again and prints every message as it arrives, until interrupted.
 exclude_session leaves out a session name, such as your own, and
 exclude_topic a topic; there is no list of topics to wait for, because a
 session that needs you may start a new one.
+-until or -timeout ends a chat wait at a deadline, with -follow too: if no
+message has come by then, wlget prints "no messages by <time>" and the line
+"next after_seq N" (in chat.json, the same as JSON) and exits with 124.
 The first read from a server signs in to it: in the browser, or with a code
 approved on another device in an SSH session or on Linux with no display.
 
@@ -54,6 +59,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
 	showVersion := flags.Bool("version", false, "print the version")
 	follow := flags.Bool("follow", false, "on a chat address, keep waiting and print every message as it arrives")
+	untilFlag := flags.String("until", "", "on a chat address, stop waiting at this time, given with its zone: 2026-10-19T20:05Z")
+	timeout := flags.Duration("timeout", 0, "on a chat address, stop waiting after this long: 10m")
 	signInFlag := flags.String("signin", "", "how to sign in: browser, or device to approve a code on another device (default: device in an SSH session or on Linux with no display, browser otherwise; also WLGET_SIGNIN)")
 	storeFlag := flags.String("store", "", "where to keep the sign-in: keychain, or file for a file only your account can read (default keychain; also WLGET_STORE)")
 	if err := flags.Parse(args); err != nil {
@@ -66,6 +73,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if flags.NArg() != 1 {
 		flags.Usage()
 		return 2
+	}
+
+	var until time.Time
+	switch {
+	case *untilFlag != "" && *timeout != 0:
+		fmt.Fprintln(stderr, "wlget: give -until or -timeout, not both: two deadlines leave it unclear which one ends the wait")
+		return 2
+	case *untilFlag != "":
+		parsed, err := parseUntil(*untilFlag)
+		if err != nil {
+			fmt.Fprintf(stderr, "wlget: %v\n", err)
+			return 2
+		}
+		until = parsed
+	case *timeout != 0:
+		until = time.Now().Add(*timeout)
 	}
 
 	cache, err := os.UserCacheDir()
@@ -88,6 +111,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		store:      store,
 		signInWith: signInWith,
 		follow:     *follow,
+		until:      until,
+		lastLook:   10 * time.Second,
 		open:       openBrowser,
 		pause:      backoff,
 		http:       &http.Client{Timeout: 90 * time.Second},
@@ -102,11 +127,34 @@ func run(args []string, stdout, stderr io.Writer) int {
 	} else {
 		err = a.get(ctx, flags.Arg(0))
 	}
-	if err != nil {
+	var reached deadlineReached
+	if err != nil && !errors.As(err, &reached) {
 		fmt.Fprintf(stderr, "wlget: %v\n", err)
+	}
+	return exitCode(err)
+}
+
+func exitCode(err error) int {
+	var reached deadlineReached
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &reached):
+		return 124
+	default:
 		return 1
 	}
-	return 0
+}
+
+var untilLayouts = []string{time.RFC3339, "2006-01-02T15:04Z07:00"}
+
+func parseUntil(raw string) (time.Time, error) {
+	for _, layout := range untilLayouts {
+		if until, err := time.Parse(layout, raw); err == nil {
+			return until, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("-until %q is not a time with its zone, such as 2026-10-19T20:05Z or 2026-10-19T22:05+02:00", raw)
 }
 
 func buildVersion() string {
