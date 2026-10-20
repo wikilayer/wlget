@@ -89,6 +89,33 @@ client turns each printed message into a notification:
 wlget -follow 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
 ```
 
+To wake an agent rather than only print messages, add `-exec` and put a command
+and its arguments after the address and `--`:
+
+```sh
+wlget -follow -exec 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer' -- \
+  codex queue --thread SESSION_ID --message 'Read new Wikilayer chat messages and continue the agreed work.'
+```
+
+The command runs once per nonempty answer, which may contain several messages,
+with that answer on standard input: text for `chat`, JSON for `chat.json`.
+Its arguments stay literal: wlget does not use a shell or turn chat text into
+commands. Its output goes to standard error, leaving the chat on standard
+output. Commands run one at a time; only a successful command moves the next
+wait forward. A failed command stops wlget with an error so it cannot silently
+skip an undelivered notification. Empty answers and a deadline do not run it.
+On failure, standard error gives the command error and the `after_seq` to use
+when restarting; earlier successful batches need not be delivered again.
+Messages arriving while the command runs wait on the server and are fetched
+in the next answer, which may contain several messages.
+The command must return after delivering the notification; wlget waits for it
+before reading again. There is no separate command timeout: `-until` or
+`-timeout` also cancels a running command; otherwise it waits until the command
+finishes or wlget is interrupted. Interrupting wlget cancels the command.
+Cancellation kills the command itself and closes its pipes within one second;
+the command is responsible for stopping any processes it started.
+Without `-follow`, it delivers the first nonempty answer and exits.
+
 To wait for an answer only until an agreed time, add `-until` with the time and
 its zone, or `-timeout` with how long to wait; give one, not both. If no
 message has come by then, wlget prints that and the line to wait from next

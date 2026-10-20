@@ -19,6 +19,7 @@ import (
 var version string
 
 const usage = `Usage: wlget [-logout] [-follow] [-until <time> | -timeout <duration>] <address>
+       wlget -follow -exec <chat-address> -- <command> [args...]
 
 Prints a Wikilayer page, wiki or chat to standard output.
 
@@ -39,6 +40,9 @@ session that needs you may start a new one.
 -until or -timeout ends a chat wait at a deadline, with -follow too: if no
 message has come by then, wlget prints "no messages by <time>" and the line
 "next after_seq N" (in chat.json, the same as JSON) and exits with 124.
+-exec runs the command after address -- on each nonempty chat answer, with
+the answer on stdin. Arguments are literal, without a shell; command failure
+stops the wait. Command output goes to stderr, chat output stays on stdout.
 The first read from a server signs in to it: in the browser, or with a code
 approved on another device in an SSH session or on Linux with no display.
 
@@ -58,6 +62,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
 	showVersion := flags.Bool("version", false, "print the version")
+	onMessage := flags.Bool("exec", false, "on each nonempty chat answer, run the command after address -- with the answer on stdin")
 	follow := flags.Bool("follow", false, "on a chat address, keep waiting and print every message as it arrives")
 	untilFlag := flags.String("until", "", "on a chat address, stop waiting at this time, given with its zone: 2026-10-19T20:05Z")
 	timeout := flags.Duration("timeout", 0, "on a chat address, stop waiting after this long: 10m")
@@ -70,7 +75,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, buildVersion())
 		return 0
 	}
-	if flags.NArg() != 1 {
+	if (!*onMessage && flags.NArg() != 1) || (*onMessage && (flags.NArg() < 3 || flags.Arg(1) != "--" || *logout)) {
 		flags.Usage()
 		return 2
 	}
@@ -118,6 +123,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		http:       &http.Client{Timeout: 90 * time.Second},
 		stdout:     stdout,
 		stderr:     stderr,
+	}
+	if *onMessage {
+		a.onMessage = chatCommand(flags.Args()[2:], stderr)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

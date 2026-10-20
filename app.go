@@ -37,6 +37,7 @@ type app struct {
 	lockDir    string
 	store      credentialStore
 	signInWith signInChoice
+	onMessage  func(context.Context, []byte) error
 	follow     bool
 	until      time.Time
 	lastLook   time.Duration
@@ -51,6 +52,9 @@ func (a *app) get(ctx context.Context, raw string) error {
 	t, err := resolve(raw)
 	if err != nil {
 		return err
+	}
+	if a.onMessage != nil && !t.chat {
+		return errors.New("-exec runs a command for chat messages, not for a page")
 	}
 	if a.follow && !t.chat {
 		return fmt.Errorf("-follow keeps waiting on a chat address, and %s is not one: a page is printed once", raw)
@@ -107,8 +111,21 @@ func (a *app) get(ctx context.Context, raw string) error {
 				continue
 			}
 		}
-		if _, err := a.stdout.Write(body); err != nil || !a.follow {
+		if _, err := a.stdout.Write(body); err != nil {
 			return err
+		}
+		if a.onMessage != nil {
+			if err := a.onMessage(waiting, body); err != nil {
+				seq := t.url.Query().Get("after_seq")
+				if seq == "" {
+					seq = "0"
+				}
+				fmt.Fprintf(a.stderr, "wlget: command did not deliver this batch; restart with after_seq=%s\n", seq)
+				return fmt.Errorf("chat command failed: %w", err)
+			}
+		}
+		if !a.follow {
+			return nil
 		}
 		printed = true
 		next, err := t.lastShown(body)

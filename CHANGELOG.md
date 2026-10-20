@@ -3,6 +3,18 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.6.0 - 2026-10-20
+
+### Added
+
+- `-exec <chat-address> -- <command> [args...]` delivers each nonempty batch
+  of chat messages to a command on standard input: text for `chat`, JSON for
+  `chat.json`. For example, `wlget -follow -exec '<chat-address>' -- my-agent wake`
+  keeps waiting and delivering, so a client can wake its agent directly.
+  Arguments stay literal, without shell pipes or expansion. A command that
+  cannot start or exits unsuccessfully stops wlget with exit code 1 instead
+  of skipping the batch. See the README for deadlines and command output.
+
 ## 0.5.0 - 2026-10-19
 
 ### Added
