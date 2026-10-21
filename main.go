@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"syscall"
 	"time"
 )
 
@@ -20,6 +21,8 @@ var version string
 
 const usage = `Usage: wlget [-logout] [-follow] [-until <time> | -timeout <duration>] <address>
        wlget -follow -exec <chat-address> -- <command> [args...]
+       wlget -follow -codex-thread <UUID> <chat-address>
+       wlget -codex-thread <UUID> -codex-clear <chat-address>
 
 Prints a Wikilayer page, wiki or chat to standard output.
 
@@ -63,6 +66,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
 	showVersion := flags.Bool("version", false, "print the version")
 	onMessage := flags.Bool("exec", false, "on each nonempty chat answer, run the command after address -- with the answer on stdin")
+	codexThread := flags.String("codex-thread", "", "deliver one coalesced notification to this Codex thread through its app-server queue")
+	codexClear := flags.Bool("codex-clear", false, "with -codex-thread, delete this chat's pending wlget notifications and legacy wake messages, then exit")
+	codexRead := flags.Int64("codex-read-through", 0, "with -codex-thread, acknowledge a processed chat sequence and remove notifications no newer than it")
+	codexStatus := flags.Bool("codex-status", false, "with -codex-thread, report pending queue entries without starting a wait")
 	execInterval := flags.Duration("exec-interval", 0, "with -follow -exec, wait at least this long after delivery before reading the next batch: 2m")
 	follow := flags.Bool("follow", false, "on a chat address, keep waiting and print every message as it arrives")
 	untilFlag := flags.String("until", "", "on a chat address, stop waiting at this time, given with its zone: 2026-10-19T20:05Z")
@@ -76,12 +83,21 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, buildVersion())
 		return 0
 	}
-	if *execInterval < 0 || (*execInterval > 0 && (!*onMessage || !*follow)) {
+	codexAction := *codexClear || *codexRead > 0 || *codexStatus
+	if (*codexThread == "" && codexAction) || *codexRead < 0 || (*codexThread != "" && (*onMessage || *logout || (!*follow && !codexAction))) {
+		fmt.Fprintln(stderr, "wlget: -codex-thread requires -follow or a queue action, and cannot be combined with -exec or -logout")
+		return 2
+	}
+	if *execInterval < 0 || (*execInterval > 0 && ((!*onMessage && *codexThread == "") || !*follow)) {
 		fmt.Fprintln(stderr, "wlget: -exec-interval must be nonnegative and requires -follow -exec")
 		return 2
 	}
 	if (!*onMessage && flags.NArg() != 1) || (*onMessage && (flags.NArg() < 3 || flags.Arg(1) != "--" || *logout)) {
 		flags.Usage()
+		return 2
+	}
+	if *onMessage && filepath.Base(flags.Arg(2)) == "codex" && flags.Arg(3) == "queue" {
+		fmt.Fprintln(stderr, "wlget: codex queue accumulates wake-ups while the agent is busy; use -follow -codex-thread UUID instead of -exec")
 		return 2
 	}
 
@@ -133,15 +149,50 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *onMessage {
 		a.onMessage = chatCommand(flags.Args()[2:], stderr)
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	if *codexThread != "" {
+		a.onMessage = codexChatCommand(*codexThread, flags.Arg(0))
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if *logout {
+	if codexAction {
+		err = withCodex(ctx, *codexThread, flags.Arg(0), func(n *codexNotice) error {
+			if *codexClear || *codexRead > 0 {
+				if err := n.clear(*codexRead, *codexClear); err != nil {
+					return err
+				}
+			}
+			items, err := n.pending()
+			if err != nil {
+				return err
+			}
+			own := 0
+			for _, item := range items {
+				if n.owns(item) {
+					own++
+				}
+			}
+			fmt.Fprintf(stdout, "Codex queue: %d total pending, %d for this wlget chat\n", len(items), own)
+			return nil
+		})
+	} else if *logout {
 		err = a.logout(ctx, flags.Arg(0))
 	} else {
 		err = a.get(ctx, flags.Arg(0))
 	}
 	var reached deadlineReached
+	if *codexThread != "" && !codexAction {
+		cleanup, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		clearErr := withCodex(cleanup, *codexThread, flags.Arg(0), func(n *codexNotice) error { return n.clear(0, false) })
+		cancel()
+		if clearErr != nil {
+			if err != nil {
+				fmt.Fprintf(stderr, "wlget: watcher stopped: %v\n", err)
+			}
+			fmt.Fprintf(stderr, "wlget: removing the pending Codex wake on stop failed: %v\n", clearErr)
+			return 1
+		}
+	}
 	if err != nil && !errors.As(err, &reached) {
 		fmt.Fprintf(stderr, "wlget: %v\n", err)
 	}

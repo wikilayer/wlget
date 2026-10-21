@@ -3,6 +3,25 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.8.0 - 2026-10-21
+
+### Fixed
+
+- Codex chat wake-ups no longer need an unbounded `codex queue` call.
+  `-follow -codex-thread UUID` keeps one pending notification per chat,
+  updating its latest sequence while the agent is busy. Queue failures stop
+  the watcher. Interrupt, SIGTERM, deadline and failure delete its pending
+  notification; failed cleanup is reported. The old direct `-exec` recipe
+  with `codex queue` is refused because an interval cannot bound its queue.
+
+### Added
+
+- `-codex-read-through N` acknowledges processed messages without deleting
+  a newer notification. `-codex-status` inspects pending entries and
+  `-codex-clear` removes this chat's pending notifications and old standard
+  Wikilayer wake messages. These operations use the Codex app-server queue
+  API and do not call a model. Other prompts are left alone.
+
 ## 0.7.0 - 2026-10-21
 
 ### Added

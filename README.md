@@ -93,8 +93,7 @@ To wake an agent rather than only print messages, add `-exec` and put a command
 and its arguments after the address and `--`:
 
 ```sh
-wlget -follow -exec 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer' -- \
-  codex queue --thread SESSION_ID --message 'Read new Wikilayer chat messages and continue the agreed work.'
+wlget -follow -exec 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer' -- my-agent deliver-and-wait
 ```
 
 The command runs once per nonempty answer, which may contain several messages,
@@ -116,7 +115,10 @@ Cancellation kills the command itself and closes its pipes within one second;
 the command is responsible for stopping any processes it started.
 Without `-follow`, it delivers the first nonempty answer and exits.
 
-For a command that queues notifications while its agent is busy, add
+For a command that queues notifications while its agent is busy, an interval
+does not bound the queue. Do not use `-exec -- codex queue`: wlget refuses
+that recipe. Use the Codex integration below instead. For other commands,
+to reduce delivery frequency, add
 `-exec-interval=2m` with `-follow -exec`. After each successful delivery,
 wlget waits two minutes before reading the next batch. Messages remain on
 the server and are read from the last delivered sequence number; empty chat
@@ -126,6 +128,48 @@ its original immediate behaviour.
 Pages marked as having more messages are fetched immediately. Near a deadline,
 the interval is shortened so wlget resumes reading at least ten seconds before
 the deadline, rather than reporting silence while an answer waits unread.
+
+### Codex: one pending notification
+
+```sh
+wlget -follow -codex-thread THREAD_UUID \
+  'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
+```
+
+This uses the installed `codex app-server proxy` and its queue API, not
+`codex queue`. Codex must have a running app-server daemon with the experimental
+`thread/queue/list`, `add`, `update` and `delete` methods. Unsupported versions
+fail visibly; there is no fallback to an unbounded queue. No model is called
+by the queue operations themselves.
+
+Notifications carry a stable marker for this chat server and include the
+latest delivered sequence. While one waits, new batches update it instead
+of adding another. A process restart finds the same pending notification.
+Operations are locked per thread across wlget processes. Human prompts and
+notifications for other chat servers are left alone. Changing text/JSON format,
+cursor or filters does not create another notification. Once Codex consumes
+the notification, a later batch can queue one more while the agent works.
+
+After reading and handling messages through sequence N, the agent acknowledges
+that sequence, using the same thread UUID and quoted chat address:
+
+```sh
+wlget -codex-thread THREAD_UUID -codex-read-through N \
+  'wikilayer://wikilayer.org/chat?exclude_session=writer'
+```
+
+This removes a pending notification only if it carries no messages newer than
+N. Successful queue delivery is not proof of processing: when restarting the
+watcher, use the last sequence actually processed via MCP as `after_seq`.
+
+Interrupt, SIGTERM, deadline or failure removes this watcher's pending
+notification before it exits. Failed cleanup is reported as an error. An
+already running agent turn cannot be recalled. To inspect the queue without
+watching, use `-codex-status` with the same arguments. For recovery after a
+forced kill or from the old recipe, use `-codex-clear`: it deletes this
+chat's marked notifications and exact matches of the old standard Wikilayer
+wake text, leaving other prompts alone. The command reports total pending
+entries and the number belonging to this chat after the action.
 
 To wait for an answer only until an agreed time, add `-until` with the time and
 its zone, or `-timeout` with how long to wait; give one, not both. If no

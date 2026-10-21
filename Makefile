@@ -14,7 +14,7 @@ LINUX_IMAGE := golang:$(patsubst go%,%,$(CI_GO))-bookworm
 NFPM_VERSION ?= v2.47.0
 LINUX_ARCHES := amd64 arm64
 
-.PHONY: install-tools format comments lint test-build test test-linux test-e2e build packages test-packages formula apt
+.PHONY: install-tools format comments lint test-build test test-codex test-linux test-e2e build packages test-packages formula apt
 
 install-tools:
 	GOTOOLCHAIN=$(CI_GO) go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)
@@ -38,6 +38,10 @@ test-build:
 
 test:
 	go test ./...
+
+test-codex:
+	@test -n "$(THREAD)" || { echo "usage: make test-codex THREAD=<busy test thread UUID>"; exit 1; }
+	WLGET_CODEX_THREAD='$(THREAD)' go test -tags integration -run '^TestCodexQueueIntegration$$' -count=1 .
 
 test-linux:
 	docker run --rm -v "$(CURDIR)":/src -w /src -e GOFLAGS=-buildvcs=false $(LINUX_IMAGE) go test -count=1 ./...
