@@ -63,6 +63,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
 	showVersion := flags.Bool("version", false, "print the version")
 	onMessage := flags.Bool("exec", false, "on each nonempty chat answer, run the command after address -- with the answer on stdin")
+	execInterval := flags.Duration("exec-interval", 0, "with -follow -exec, wait at least this long after delivery before reading the next batch: 2m")
 	follow := flags.Bool("follow", false, "on a chat address, keep waiting and print every message as it arrives")
 	untilFlag := flags.String("until", "", "on a chat address, stop waiting at this time, given with its zone: 2026-10-19T20:05Z")
 	timeout := flags.Duration("timeout", 0, "on a chat address, stop waiting after this long: 10m")
@@ -74,6 +75,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *showVersion {
 		fmt.Fprintln(stdout, buildVersion())
 		return 0
+	}
+	if *execInterval < 0 || (*execInterval > 0 && (!*onMessage || !*follow)) {
+		fmt.Fprintln(stderr, "wlget: -exec-interval must be nonnegative and requires -follow -exec")
+		return 2
 	}
 	if (!*onMessage && flags.NArg() != 1) || (*onMessage && (flags.NArg() < 3 || flags.Arg(1) != "--" || *logout)) {
 		flags.Usage()
@@ -112,17 +117,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	a := &app{
-		lockDir:    filepath.Join(cache, "wlget"),
-		store:      store,
-		signInWith: signInWith,
-		follow:     *follow,
-		until:      until,
-		lastLook:   10 * time.Second,
-		open:       openBrowser,
-		pause:      backoff,
-		http:       &http.Client{Timeout: 90 * time.Second},
-		stdout:     stdout,
-		stderr:     stderr,
+		lockDir:      filepath.Join(cache, "wlget"),
+		store:        store,
+		signInWith:   signInWith,
+		follow:       *follow,
+		execInterval: *execInterval,
+		until:        until,
+		lastLook:     10 * time.Second,
+		open:         openBrowser,
+		pause:        backoff,
+		http:         &http.Client{Timeout: 90 * time.Second},
+		stdout:       stdout,
+		stderr:       stderr,
 	}
 	if *onMessage {
 		a.onMessage = chatCommand(flags.Args()[2:], stderr)

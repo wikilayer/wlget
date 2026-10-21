@@ -3,6 +3,18 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.7.0 - 2026-10-21
+
+### Added
+
+- `-exec-interval=2m` with `-follow -exec` reduces notification frequency by
+  waiting after each successful delivery before fetching the next batch.
+  Messages accumulate on the server without losing the delivered cursor.
+  The first delivery remains immediate; interrupts and deadlines cancel the
+  wait. Already waiting pages are fetched immediately, and the interval is
+  shortened near a deadline. Omit the flag to keep immediate delivery of
+  every batch.
+
 ## 0.6.0 - 2026-10-20
 
 ### Added

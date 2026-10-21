@@ -139,3 +139,88 @@ func TestRun_CommandRequiresAddressSeparatorAndExecutable(t *testing.T) {
 		assert.Equal(t, 2, run(args, &stdout, &stderr), args)
 	}
 }
+
+func TestGet_CommandIntervalKeepsCursorAndDelaysNextBatch(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{`{"messages":[{"seq":8}]}`, `{"messages":[{"seq":9},{"seq":10}]}`}
+	h := newHarness(t)
+	h.app.follow = true
+	h.app.execInterval = 30 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var delivered []time.Time
+	h.app.onMessage = func(_ context.Context, body []byte) error {
+		delivered = append(delivered, time.Now())
+		if len(delivered) == 2 {
+			assert.Contains(t, string(body), `"seq":10`)
+			cancel()
+		}
+		return nil
+	}
+	assert.ErrorIs(t, h.app.get(ctx, server.URL+"/chat.json?after_seq=7"), context.Canceled)
+	require.Len(t, delivered, 2)
+	assert.GreaterOrEqual(t, delivered[1].Sub(delivered[0]), h.app.execInterval)
+	assert.Equal(t, []string{"7", "8"}, server.chatAfterAsked)
+}
+
+func TestGet_CommandIntervalHonorsDeadlineAndReportsDeliveredCursor(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{`{"messages":[{"seq":8}]}`, `{"messages":[{"seq":9}]}`}
+	h := newHarness(t)
+	h.app.follow = true
+	h.app.execInterval = time.Hour
+	h.app.lastLook = 10 * time.Second
+	h.app.until = time.Now().Add(100 * time.Millisecond)
+	h.app.onMessage = func(context.Context, []byte) error { return nil }
+	err := h.get(t, server.URL+"/chat.json?after_seq=7")
+	var reached deadlineReached
+	assert.ErrorAs(t, err, &reached)
+	assert.Contains(t, h.stdout.String(), `"seq":9`)
+	assert.Contains(t, h.stdout.String(), `"next_after_seq":9`)
+	require.GreaterOrEqual(t, len(server.chatAfterAsked), 2)
+	assert.Equal(t, "8", server.chatAfterAsked[1])
+}
+
+func TestGet_CommandIntervalDrainsWaitingPagesImmediately(t *testing.T) {
+	server := newFakeServer(t)
+	server.chatPages = []string{`{"messages":[{"seq":8}],"has_more":true}`, `{"messages":[{"seq":9}]}`}
+	h := newHarness(t)
+	h.app.follow = true
+	h.app.execInterval = time.Hour
+	failure := fmt.Errorf("second batch delivered")
+	deliveries := 0
+	h.app.onMessage = func(context.Context, []byte) error {
+		deliveries++
+		if deliveries == 2 {
+			return failure
+		}
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	assert.ErrorIs(t, h.app.get(ctx, server.URL+"/chat.json?after_seq=7"), failure)
+	assert.Equal(t, []string{"7", "8"}, server.chatAfterAsked)
+}
+
+func TestTarget_MoreWaitingReadsTextTrailerOnly(t *testing.T) {
+	target, err := resolve("https://example.com/chat")
+	require.NoError(t, err)
+	more, err := target.moreWaiting([]byte("#8 · writer · topic\n\nnext after_seq 8\nMore messages are waiting already.\n"))
+	require.NoError(t, err)
+	assert.True(t, more)
+	more, err = target.moreWaiting([]byte("#8 · writer · topic\n\\More messages are waiting already.\n\nnext after_seq 8\n"))
+	require.NoError(t, err)
+	assert.False(t, more)
+}
+
+func TestRun_CommandIntervalRequiresFollowExec(t *testing.T) {
+	for _, args := range [][]string{
+		{"-exec-interval=-1s", "http://localhost/chat.json"},
+		{"-exec-interval=1s", "http://localhost/chat.json"},
+		{"-exec-interval=1s", "-exec", "http://localhost/chat.json", "--", "echo"},
+	} {
+		var stdout, stderr bytes.Buffer
+		assert.Equal(t, 2, run(args, &stdout, &stderr))
+		assert.Contains(t, stderr.String(), "-exec-interval")
+	}
+}

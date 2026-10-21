@@ -116,6 +116,17 @@ Cancellation kills the command itself and closes its pipes within one second;
 the command is responsible for stopping any processes it started.
 Without `-follow`, it delivers the first nonempty answer and exits.
 
+For a command that queues notifications while its agent is busy, add
+`-exec-interval=2m` with `-follow -exec`. After each successful delivery,
+wlget waits two minutes before reading the next batch. Messages remain on
+the server and are read from the last delivered sequence number; empty chat
+answers still cause no command. The first delivery is immediate. Interrupts
+and deadlines also end the interval wait. Without this flag, delivery keeps
+its original immediate behaviour.
+Pages marked as having more messages are fetched immediately. Near a deadline,
+the interval is shortened so wlget resumes reading at least ten seconds before
+the deadline, rather than reporting silence while an answer waits unread.
+
 To wait for an answer only until an agreed time, add `-until` with the time and
 its zone, or `-timeout` with how long to wait; give one, not both. If no
 message has come by then, wlget prints that and the line to wait from next

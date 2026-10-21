@@ -34,18 +34,19 @@ type credentialStore interface {
 }
 
 type app struct {
-	lockDir    string
-	store      credentialStore
-	signInWith signInChoice
-	onMessage  func(context.Context, []byte) error
-	follow     bool
-	until      time.Time
-	lastLook   time.Duration
-	open       func(ctx context.Context, address string) error
-	pause      func(attempt int) time.Duration
-	http       *http.Client
-	stdout     io.Writer
-	stderr     io.Writer
+	lockDir      string
+	store        credentialStore
+	signInWith   signInChoice
+	onMessage    func(context.Context, []byte) error
+	follow       bool
+	execInterval time.Duration
+	until        time.Time
+	lastLook     time.Duration
+	open         func(ctx context.Context, address string) error
+	pause        func(attempt int) time.Duration
+	http         *http.Client
+	stdout       io.Writer
+	stderr       io.Writer
 }
 
 func (a *app) get(ctx context.Context, raw string) error {
@@ -133,7 +134,38 @@ func (a *app) get(ctx context.Context, raw string) error {
 			return fmt.Errorf("%s answered chat messages without saying where to wait from next: %w", t.url, err)
 		}
 		t = t.after(next)
+		more, err := t.moreWaiting(body)
+		if err != nil {
+			return err
+		}
+		interval := a.execInterval
+		if end, ok := waiting.Deadline(); ok {
+			interval = min(interval, time.Until(end)-a.lastLook)
+		}
+		if a.onMessage != nil && interval > 0 && !more {
+			select {
+			case <-time.After(interval):
+			case <-waiting.Done():
+				if a.deadlinePassed(ctx, waiting) {
+					return a.reportDeadline(t, printed)
+				}
+				return ctx.Err()
+			}
+		}
 	}
+}
+
+func (t target) moreWaiting(body []byte) (bool, error) {
+	if path.Ext(t.url.Path) == ".md" {
+		return bytes.HasSuffix(body, []byte("\nMore messages are waiting already.\n")), nil
+	}
+	var answer struct {
+		HasMore bool `json:"has_more"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil {
+		return false, err
+	}
+	return answer.HasMore, nil
 }
 
 type deadlineReached struct{ until time.Time }
