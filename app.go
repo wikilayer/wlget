@@ -34,6 +34,7 @@ type credentialStore interface {
 }
 
 type app struct {
+	agreed       []string
 	lockDir      string
 	store        credentialStore
 	signInWith   signInChoice
@@ -80,7 +81,7 @@ func (a *app) get(ctx context.Context, raw string) error {
 	printed := false
 	attempt := 0
 	for {
-		body, err := session.fetch(waiting, t)
+		doc, err := session.fetch(waiting, t)
 		if err != nil && a.deadlinePassed(ctx, waiting) {
 			return a.reportDeadline(t, printed)
 		}
@@ -102,6 +103,7 @@ func (a *app) get(ctx context.Context, raw string) error {
 		if err != nil {
 			return err
 		}
+		body := doc.body
 		attempt = 0
 		if t.chat {
 			arrived, err := t.chatArrived(body)
@@ -114,6 +116,9 @@ func (a *app) get(ctx context.Context, raw string) error {
 		}
 		if _, err := a.stdout.Write(body); err != nil {
 			return err
+		}
+		if doc.rulesURL != "" {
+			return a.issueAgreement(doc.rulesURL)
 		}
 		if a.onMessage != nil {
 			if err := a.onMessage(waiting, body); err != nil {
@@ -389,7 +394,12 @@ func backoff(attempt int) time.Duration {
 	return min(time.Second<<attempt, 30*time.Second)
 }
 
-func (s *session) fetch(ctx context.Context, t target) ([]byte, error) {
+type fetchedDocument struct {
+	body     []byte
+	rulesURL string
+}
+
+func (s *session) fetch(ctx context.Context, t target) (*fetchedDocument, error) {
 	resp, err := s.send(ctx, t)
 	if err != nil {
 		return nil, err
@@ -406,7 +416,21 @@ func (s *session) fetch(ctx context.Context, t target) ([]byte, error) {
 	defer s.app.closeBody(resp)
 	switch resp.StatusCode {
 	case http.StatusOK:
-		return io.ReadAll(resp.Body)
+		if err := s.app.requireAgreement(resp.Header.Values(rulesPageHeader)); err != nil {
+			return nil, err
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		doc := &fetchedDocument{body: body}
+		if strings.HasSuffix(resp.Request.URL.Path, "/rules.md") {
+			if !bytes.HasPrefix(body, []byte("<!-- page:rules -->\n")) {
+				return nil, fmt.Errorf("%s did not answer a rules document", resp.Request.URL)
+			}
+			doc.rulesURL = resp.Request.URL.String()
+		}
+		return doc, nil
 	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return nil, transientError{refusal(http.MethodGet, t.url.String(), resp)}
 	case http.StatusNotFound:

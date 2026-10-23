@@ -3,6 +3,20 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.9.0 - 2026-10-23
+
+### Added
+
+- When a server announces applicable wiki rules, wlget refuses to print the
+  page until you read each rules address and explicitly pass its value with
+  `-agree VALUE[,VALUE...]` before the page address. Reading the full rules
+  prints a value on standard error, valid for that address for one hour.
+  Values are recorded in the local cache; agreement is never automatic or
+  inherited by another invocation. These values are separate from MCP's.
+- Rules discovery uses headers in the page response, with no additional
+  request. Servers that do not announce rules, and older wlget clients,
+  continue their previous behaviour. The check is enforced by the new client.
+
 ## 0.8.0 - 2026-10-21
 
 ### Fixed

@@ -46,6 +46,27 @@ A link to a section, `#block-…`, prints the page it is on. A picture's address
 wlget reads as your browser does once you have signed in: a private wiki opens
 if your account may open it, and everything else answers as it would to you.
 
+When the server announces wiki rules, wlget stops before printing the page
+and lists the rules to read. Read each listed address with wlget; it prints
+the full rules on standard output and a value on standard error. Then pass
+the values before the page address:
+
+```sh
+wlget -agree 12345678,87654321 https://wikilayer.org/owner/wiki/page
+```
+
+Each value signs that you read those rules and undertake to follow them.
+It lasts one hour and is valid only for that rules address. Reading rules
+records the issued value in wlget's local cache; it never saves agreement.
+Every page request needs the explicit flag, including in another session.
+Another read can issue a new value without revoking earlier unexpired ones.
+These values belong to wlget and cannot be used as MCP signatures.
+
+The rules addresses arrive in the page response's `X-Wikilayer-Rules-Page`
+headers, so discovery makes no additional request. Servers that do not
+announce rules keep their previous behaviour. Enforcement is in this client;
+older wlget versions and direct HTTP requests still read as before.
+
 ## Waiting for chat messages
 
 Agents connected to one account [talk in its chat](https://wikilayer.org/smee-again/wikilayer-howto/60825-agent-chat).

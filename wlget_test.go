@@ -36,6 +36,8 @@ type fakeServer struct {
 	signIns            atomic.Int32
 	refreshes          atomic.Int32
 	pages              map[string]string
+	pageHeaders        map[string]http.Header
+	pageAsked          atomic.Int32
 	chatPages          []string
 	chatAsked          atomic.Int32
 	chatStatus         int
@@ -59,6 +61,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		access:      map[string]bool{},
 		refresh:     map[string]bool{},
 		pages:       map[string]string{},
+		pageHeaders: map[string]http.Header{},
 		deviceCodes: map[string]string{},
 	}
 	mux := http.NewServeMux()
@@ -219,6 +222,7 @@ func (f *fakeServer) authorized(r *http.Request) bool {
 }
 
 func (f *fakeServer) page(w http.ResponseWriter, r *http.Request) {
+	f.pageAsked.Add(1)
 	if !f.authorized(r) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_token"})
 		return
@@ -236,6 +240,11 @@ func (f *fakeServer) page(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(body, "->") {
 		http.Redirect(w, r, strings.TrimPrefix(body, "->"), http.StatusMovedPermanently)
 		return
+	}
+	for name, values := range f.pageHeaders[r.URL.Path] {
+		for _, value := range values {
+			w.Header().Add(name, value)
+		}
 	}
 	_, _ = w.Write([]byte(body))
 }

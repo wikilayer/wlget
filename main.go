@@ -19,7 +19,7 @@ import (
 
 var version string
 
-const usage = `Usage: wlget [-logout] [-follow] [-until <time> | -timeout <duration>] <address>
+const usage = `Usage: wlget [-agree <values>] [-logout] [-follow] [-until <time> | -timeout <duration>] <address>
        wlget -follow -exec <chat-address> -- <command> [args...]
        wlget -follow -codex-thread <UUID> <chat-address>
        wlget -codex-thread <UUID> -codex-clear <chat-address>
@@ -64,6 +64,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		flags.PrintDefaults()
 	}
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
+	agreeFlag := flags.String("agree", "", "sign that you read and undertake to follow the rules: comma-separated values printed after reading them (valid for one hour)")
 	showVersion := flags.Bool("version", false, "print the version")
 	onMessage := flags.Bool("exec", false, "on each nonempty chat answer, run the command after address -- with the answer on stdin")
 	codexThread := flags.String("codex-thread", "", "deliver one coalesced notification to this Codex thread through its app-server queue")
@@ -82,6 +83,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *showVersion {
 		fmt.Fprintln(stdout, buildVersion())
 		return 0
+	}
+	agreed, err := parseAgreements(*agreeFlag)
+	if err != nil {
+		fmt.Fprintf(stderr, "wlget: %v\n", err)
+		return 2
 	}
 	codexAction := *codexClear || *codexRead > 0 || *codexStatus
 	if (*codexThread == "" && codexAction) || *codexRead < 0 || (*codexThread != "" && (*onMessage || *logout || (!*follow && !codexAction))) {
@@ -133,6 +139,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	a := &app{
+		agreed:       agreed,
 		lockDir:      filepath.Join(cache, "wlget"),
 		store:        store,
 		signInWith:   signInWith,
