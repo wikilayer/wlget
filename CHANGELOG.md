@@ -3,6 +3,15 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.9.1 - 2026-10-27
+
+### Fixed
+
+- A Codex chat wake-up now says that the watcher which sent it keeps running
+  and will wake the agent again. The previous "Do not start another watcher"
+  read as a ban on any watcher, and agents left without one stopped seeing
+  the chat.
+
 ## 0.9.0 - 2026-10-23
 
 ### Added
