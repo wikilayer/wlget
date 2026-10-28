@@ -43,11 +43,12 @@ plain HTTP from a server on this computer. The ending picks the form:
 A link to a section, `#block-…`, prints the page it is on. A picture's address,
 `/s/…`, prints the picture itself, so `wlget … > picture.jpg` saves it.
 
-There is no address that prints a whole wiki at once, and there will not be:
-the browser shows one page at a time, and wlget prints what the browser shows.
-A wiki is read page by page from its outline, so what a reader takes away is
-each page as the server renders it, not a copy some script assembled from a
-dump. `<wiki>/index.md` lists every page with its address.
+Every address prints one page, and none prints a whole wiki at once, so each
+page you read is the one the server renders rather than a copy rebuilt from a
+dump. To read every page of a wiki, list them with the `get_outline` tool of
+the Wikilayer MCP server and read each with `get_page_markdown`, or with
+wlget at the page's address in the browser. To copy a whole wiki, download its
+ZIP export from the wiki's Manage page in the browser.
 
 wlget reads as your browser does once you have signed in: a private wiki opens
 if your account may open it, and everything else answers as it would to you.

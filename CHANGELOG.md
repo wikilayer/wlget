@@ -14,11 +14,11 @@ Notable changes to `wlget` are documented here in the format of
   address returned every page of the wiki in one document, and a page's
   `.json` returned that page together with all the pages nested under it. Now
   a wiki's `.json` returns only its home page and a page's `.json` only that
-  page, the same text you see when you open the address in a browser. A script
-  that read a whole wiki in one call reads it page by page instead: the wiki's
-  `index.md` address (`wlget https://wikilayer.org/<owner>/<wiki>/index.md`)
-  lists every page with its address. To copy a whole wiki, download its ZIP
-  export from the wiki's Manage page in the browser.
+  page, the same page you see when you open the address in a browser. A script
+  that read a whole wiki in one call reads it page by page instead: list the
+  pages with the `get_outline` tool of the Wikilayer MCP server and read each
+  one with `get_page_markdown`, or with wlget at its address. To copy a whole
+  wiki, download its ZIP export from the wiki's Manage page in the browser.
 
 ## 0.9.1 - 2026-10-27
 
