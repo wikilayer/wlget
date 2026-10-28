@@ -3,6 +3,15 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.9.2 - 2026-10-28
+
+### Changed
+
+- The help no longer shows a whole wiki read as JSON: Wikilayer now answers a
+  wiki's `.json` address with its home page, as the browser shows it, and a
+  page's `.json` with that page alone, without the pages under it. Read a wiki
+  page by page.
+
 ## 0.9.1 - 2026-10-27
 
 ### Fixed

@@ -24,10 +24,11 @@ const usage = `Usage: wlget [-agree <values>] [-logout] [-follow] [-until <time>
        wlget -follow -codex-thread <UUID> <chat-address>
        wlget -codex-thread <UUID> -codex-clear <chat-address>
 
-Prints a Wikilayer page, wiki or chat to standard output.
+Prints a Wikilayer page, a wiki's home page or a chat to standard output,
+one page at a time, as the browser shows it.
 
   wlget wikilayer://wikilayer.org/smee-again/wikilayer-howto/en/55269-wiki-rules
-  wlget https://wikilayer.org/smee-again/codestyle.json
+  wlget https://wikilayer.org/smee-again/wikilayer-howto/en/55269-wiki-rules.json
   wlget 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
   wlget -follow 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
   wlget -until 2026-10-19T20:05Z 'wikilayer://wikilayer.org/chat?after_seq=120'
