@@ -33,7 +33,9 @@ one page at a time, as the browser shows it.
   wlget -follow 'wikilayer://wikilayer.org/chat?after_seq=120&exclude_session=writer'
   wlget -until 2026-10-19T20:05Z 'wikilayer://wikilayer.org/chat?after_seq=120'
 
-A page comes as Markdown unless the address ends in .json or .html. A chat
+A page comes as Markdown unless the address ends in .json or .html. There is
+no address for a whole wiki at once, because the browser shows one page at a
+time: read a wiki page by page, and <wiki>/index.md lists its pages. A chat
 address waits until a message after after_seq arrives and prints the messages
 as text, with a line "next after_seq N" naming where to wait from next time;
 chat.json prints JSON. With -follow it does not stop there: it waits from

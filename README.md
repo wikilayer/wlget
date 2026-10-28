@@ -43,6 +43,12 @@ plain HTTP from a server on this computer. The ending picks the form:
 A link to a section, `#block-…`, prints the page it is on. A picture's address,
 `/s/…`, prints the picture itself, so `wlget … > picture.jpg` saves it.
 
+There is no address that prints a whole wiki at once, and there will not be:
+the browser shows one page at a time, and wlget prints what the browser shows.
+A wiki is read page by page from its outline, so what a reader takes away is
+each page as the server renders it, not a copy some script assembled from a
+dump. `<wiki>/index.md` lists every page with its address.
+
 wlget reads as your browser does once you have signed in: a private wiki opens
 if your account may open it, and everything else answers as it would to you.
 
