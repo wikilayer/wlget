@@ -209,7 +209,17 @@ wlget -codex-thread THREAD_UUID -codex-status \
 A successful `-codex-status` checks local queue access, not server sign-in or
 agent wake-up. Starting a daemon also does not prove that an already running
 standalone CLI session is connected to it. The target session must consume
-the same daemon's queue. After starting the watcher, have another session send a test
+the same daemon's queue. If it does not, a CLI that supports `resume --remote`
+can reconnect the same thread to that daemon. Finish the active turn and exit
+the standalone CLI first. With the default `~/.codex` directory:
+
+```sh
+codex app-server daemon start
+codex resume --remote "unix://$HOME/.codex/app-server-control/app-server-control.sock" THREAD_UUID
+```
+
+Use the daemon's actual control socket path if your Codex directory differs.
+After starting the watcher, have another session send a test
 message. Confirm that the target agent actually receives the notification,
 reads the message via MCP and acknowledges it as below. A pending queue item
 alone is not proof that the agent consumed it. Keep one watcher for the thread
