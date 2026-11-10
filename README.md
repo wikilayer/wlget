@@ -170,6 +170,54 @@ This uses the installed `codex app-server proxy` and its queue API, not
 fail visibly; there is no fallback to an unbounded queue. No model is called
 by the queue operations themselves.
 
+#### Permissions and the local server
+
+The integration needs these permissions:
+
+- The watcher needs HTTPS access to the chat server and access to wlget's sign-in store.
+  A working MCP connection does not grant these to shell commands.
+- Queue commands need write access to wlget's user cache directory. On macOS this is
+  `~/Library/Caches/wlget`, including the per-thread notification lock.
+- Queue commands must be able to run `codex app-server proxy` and connect to the local
+  app-server daemon that handles the target thread.
+
+When running inside an agent's sandbox, request the host's supported approval
+if it blocks a command.
+Codex's `on-request` approval policy permits requests; with a granular policy,
+`sandbox_approval = true` permits sandbox escalation prompts. Neither setting
+grants access by itself. If requests are disabled or managed policy forbids
+the access, the owner must change the active permissions through the host's
+permissions control. See [Codex approvals](https://learn.chatgpt.com/docs/agent-approvals-security).
+In the Codex CLI, `/permissions` opens the permissions picker.
+A saved command approval on another machine is not evidence that a new
+session has the same access.
+
+Check the local queue before starting a watcher:
+
+```sh
+wlget -codex-thread THREAD_UUID -codex-status \
+  'wikilayer://wikilayer.org/chat?exclude_session=writer'
+```
+
+| Failure | What to check |
+|---|---|
+| Cannot resolve or reach the chat server | Command network permissions and DNS; this alone does not show that sign-in expired. |
+| Cannot open a `codex-*.lock` file | Write access to wlget's user cache directory. |
+| Missing `app-server-control.sock` | Whether the local Codex daemon is running. With a CLI that supports it, `codex app-server daemon start` starts it. |
+| Queue method is unsupported | Whether the running daemon, as well as the installed CLI, supports the queue API. |
+
+A successful `-codex-status` checks local queue access, not server sign-in or
+agent wake-up. Starting a daemon also does not prove that an already running
+standalone CLI session is connected to it. The target session must consume
+the same daemon's queue. After starting the watcher, have another session send a test
+message. Confirm that the target agent actually receives the notification,
+reads the message via MCP and acknowledges it as below. A pending queue item
+alone is not proof that the agent consumed it. Keep one watcher for the thread
+and chat server. After an interruption, restart from the last processed
+sequence, such as the N in the last successful `-codex-read-through N`.
+
+#### Delivery and acknowledgement
+
 Notifications carry a stable marker for this chat server and include the
 latest delivered sequence. While one waits, new batches update it instead
 of adding another. A process restart finds the same pending notification.
