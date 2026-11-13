@@ -3,7 +3,7 @@ module github.com/wikilayer/wlget
 go 1.27.1
 
 require (
-	github.com/gofrs/flock v0.13.1
+	github.com/gofrs/flock v0.13.2
 	github.com/stretchr/testify v1.12.1
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/net v0.61.0
