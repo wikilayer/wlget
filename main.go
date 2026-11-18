@@ -19,7 +19,7 @@ import (
 
 var version string
 
-const usage = `Usage: wlget [-agree <values>] [-logout] [-follow] [-until <time> | -timeout <duration>] <address>
+const usage = `Usage: wlget [-rules-read-and-agreed <values>] [-logout] [-follow] [-until <time> | -timeout <duration>] <address>
        wlget -follow -exec <chat-address> -- <command> [args...]
        wlget -follow -codex-thread <UUID> <chat-address>
        wlget -codex-thread <UUID> -codex-clear <chat-address>
@@ -50,6 +50,10 @@ the answer on stdin. Arguments are literal, without a shell; command failure
 stops the wait. Command output goes to stderr, chat output stays on stdout.
 The first read from a server signs in to it: in the browser, or with a code
 approved on another device in an SSH session or on Linux with no display.
+wlget is a helper; agents work with a wiki through its MCP server. A wiki with
+rules answers a page only to a reader who signed them: pass the values with
+-rules-read-and-agreed. Only MCP hands them out, with
+get_page_markdown(wiki_id=N, special_role='rules'); wlget gives out none.
 
 Flags:
 `
@@ -66,7 +70,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		flags.PrintDefaults()
 	}
 	logout := flags.Bool("logout", false, "forget the sign-in to the server the address names")
-	agreeFlag := flags.String("agree", "", "sign that you read and undertake to follow the rules: comma-separated values printed after reading them (valid for one hour)")
+	agreeFlag := flags.String("rules-read-and-agreed", "", "sign that you read the wiki's rules and undertake to follow them: comma-separated values that only MCP hands out, with get_page_markdown(wiki_id=N, special_role='rules')")
 	showVersion := flags.Bool("version", false, "print the version")
 	onMessage := flags.Bool("exec", false, "on each nonempty chat answer, run the command after address -- with the answer on stdin")
 	codexThread := flags.String("codex-thread", "", "deliver one coalesced notification to this Codex thread through its app-server queue")

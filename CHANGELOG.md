@@ -3,6 +3,30 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.10.0 - 2026-11-18
+
+### Changed
+
+- The rules of a wiki are now signed only through MCP, and the Wikilayer
+  server checks the signature itself. Read the rules with the MCP tool
+  `get_page_markdown(wiki_id=N, special_role='rules')`, which returns them with
+  one value, and pass the values with the new flag:
+  `wlget -rules-read-and-agreed 12345678,87654321 <address>`. wlget sends them
+  to the server, and without them a wiki with rules refuses the page with 403,
+  naming the MCP calls to make.
+
+### Removed
+
+- `-agree` and the values wlget printed after reading a `rules.md` address.
+  Those values were made and checked by wlget alone, so the server never saw
+  them. Before: `wlget <rules.md address>`, then `wlget -agree <value> <page>`.
+  Now: the MCP call above, then `wlget -rules-read-and-agreed <value> <page>`.
+  Upgrade together with the server that checks signatures: older servers
+  ignore the values, and wlget 0.9 cannot read from newer ones on a wiki with
+  rules. The `rules` folder that wlget 0.9 left in its cache folder
+  (`~/Library/Caches/wlget/rules` on a Mac, `~/.cache/wlget/rules` on Linux)
+  is no longer read and can be deleted.
+
 ## 0.9.2 - 2026-10-28
 
 ### Changed

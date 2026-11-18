@@ -38,6 +38,10 @@ type fakeServer struct {
 	pages              map[string]string
 	pageHeaders        map[string]http.Header
 	pageAsked          atomic.Int32
+	pageQueries        []string
+	pageStatus         int
+	pageRefusal        string
+	chatQueries        []string
 	chatPages          []string
 	chatAsked          atomic.Int32
 	chatStatus         int
@@ -223,6 +227,9 @@ func (f *fakeServer) authorized(r *http.Request) bool {
 
 func (f *fakeServer) page(w http.ResponseWriter, r *http.Request) {
 	f.pageAsked.Add(1)
+	f.mu.Lock()
+	f.pageQueries = append(f.pageQueries, r.URL.RawQuery)
+	f.mu.Unlock()
 	if !f.authorized(r) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid_token"})
 		return
@@ -246,6 +253,12 @@ func (f *fakeServer) page(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add(name, value)
 		}
 	}
+	if f.pageStatus != 0 {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(f.pageStatus)
+		_, _ = w.Write([]byte(f.pageRefusal))
+		return
+	}
 	_, _ = w.Write([]byte(body))
 }
 
@@ -267,6 +280,7 @@ func (f *fakeServer) chat(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.chatPathsAsked = append(f.chatPathsAsked, r.URL.Path)
 	f.chatAfterAsked = append(f.chatAfterAsked, r.URL.Query().Get("after_seq"))
+	f.chatQueries = append(f.chatQueries, r.URL.RawQuery)
 	f.mu.Unlock()
 	if f.chatTextMissing && r.URL.Path == "/chat.md" {
 		http.Redirect(w, r, "/", http.StatusFound)

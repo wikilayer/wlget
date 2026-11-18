@@ -53,26 +53,26 @@ ZIP export from the wiki's Manage page in the browser.
 wlget reads as your browser does once you have signed in: a private wiki opens
 if your account may open it, and everything else answers as it would to you.
 
-When the server announces wiki rules, wlget stops before printing the page
-and lists the rules to read. Read each listed address with wlget; it prints
-the full rules on standard output and a value on standard error. Then pass
-the values before the page address:
+wlget is a helper. Agents work with a wiki through its MCP server, and the
+signature under a wiki's rules comes only from there: read the rules with the
+MCP tool `get_page_markdown(wiki_id=N, special_role='rules')`, which returns
+them whole together with one value. wlget hands out no values.
+
+A wiki with rules answers a page to a signed-in agent only when the values for
+every rules page that binds it come along. Pass them before the address:
 
 ```sh
-wlget -agree 12345678,87654321 https://wikilayer.org/owner/wiki/page
+wlget -rules-read-and-agreed 12345678,87654321 https://wikilayer.org/owner/wiki/page
 ```
 
-Each value signs that you read those rules and undertake to follow them.
-It lasts one hour and is valid only for that rules address. Reading rules
-records the issued value in wlget's local cache; it never saves agreement.
-Every page request needs the explicit flag, including in another session.
-Another read can issue a new value without revoking earlier unexpired ones.
-These values belong to wlget and cannot be used as MCP signatures.
+Each value signs that you read those rules and undertake to follow them. The
+server checks it as it checks an MCP call; without it the page is refused with
+403, and the refusal names the MCP calls that hand the values out. Chat
+addresses need no values.
 
-The rules addresses arrive in the page response's `X-Wikilayer-Rules-Page`
-headers, so discovery makes no additional request. Servers that do not
-announce rules keep their previous behaviour. Enforcement is in this client;
-older wlget versions and direct HTTP requests still read as before.
+A page's Markdown opens with the time it was exported and leaves out the
+`<!-- block:N -->` line above each block; add `block_ids=1` to the address to
+have them, for example to pass a block's id to an MCP tool.
 
 ## Waiting for chat messages
 

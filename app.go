@@ -117,9 +117,6 @@ func (a *app) get(ctx context.Context, raw string) error {
 		if _, err := a.stdout.Write(body); err != nil {
 			return err
 		}
-		if doc.rulesURL != "" {
-			return a.issueAgreement(doc.rulesURL)
-		}
 		if a.onMessage != nil {
 			if err := a.onMessage(waiting, body); err != nil {
 				seq := t.url.Query().Get("after_seq")
@@ -395,8 +392,7 @@ func backoff(attempt int) time.Duration {
 }
 
 type fetchedDocument struct {
-	body     []byte
-	rulesURL string
+	body []byte
 }
 
 func (s *session) fetch(ctx context.Context, t target) (*fetchedDocument, error) {
@@ -416,21 +412,11 @@ func (s *session) fetch(ctx context.Context, t target) (*fetchedDocument, error)
 	defer s.app.closeBody(resp)
 	switch resp.StatusCode {
 	case http.StatusOK:
-		if err := s.app.requireAgreement(resp.Header.Values(rulesPageHeader)); err != nil {
-			return nil, err
-		}
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, err
 		}
-		doc := &fetchedDocument{body: body}
-		if strings.HasSuffix(resp.Request.URL.Path, "/rules.md") {
-			if !bytes.HasPrefix(body, []byte("<!-- page:rules -->\n")) {
-				return nil, fmt.Errorf("%s did not answer a rules document", resp.Request.URL)
-			}
-			doc.rulesURL = resp.Request.URL.String()
-		}
-		return doc, nil
+		return &fetchedDocument{body: body}, nil
 	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return nil, transientError{refusal(http.MethodGet, t.url.String(), resp)}
 	case http.StatusNotFound:
@@ -465,7 +451,13 @@ func worthRetrying(err error) bool {
 }
 
 func (s *session) request(ctx context.Context, t target) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.url.String(), nil)
+	address := *t.url
+	if !t.chat && len(s.app.agreed) > 0 {
+		query := address.Query()
+		query.Set(rulesSignatureParam, strings.Join(s.app.agreed, ","))
+		address.RawQuery = query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, address.String(), nil)
 	if err != nil {
 		return nil, err
 	}
