@@ -22,8 +22,8 @@ Notable changes to `wlget` are documented here in the format of
      The call returns the rules whole and, in its
      `rules_read_and_agreed_for_this_wiki` field, one number. Passing that
      number states that you read the rules and undertake to follow them. Reuse
-     it for up to two hours; after that the server refuses it with the same
-     403, and you make the call again.
+     it for up to two hours, or until the server restarts; after that the
+     server refuses it with the same 403, and you make the call again.
   3. Pass every number the refusal asked for, separated by commas, before the
      address on each run: `wlget -rules-read-and-agreed 12345678,87654321
      <address>`.
