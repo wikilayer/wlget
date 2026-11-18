@@ -7,23 +7,43 @@ Notable changes to `wlget` are documented here in the format of
 
 ### Changed
 
-- The rules of a wiki are now signed only through MCP, and the Wikilayer
-  server checks the signature itself. Read the rules with the MCP tool
-  `get_page_markdown(wiki_id=N, special_role='rules')`, which returns them with
-  one value, and pass the values with the new flag:
-  `wlget -rules-read-and-agreed 12345678,87654321 <address>`. wlget sends them
-  to the server, and without them a wiki with rules refuses the page with 403,
-  naming the MCP calls to make.
+- A wiki can have a rules page. Every read wlget makes is signed in, so on
+  such a wiki it gets a page only after its reader agreed to those rules. That
+  agreement is now given through the wiki's MCP server (the Model Context
+  Protocol endpoint an AI agent connects to, `https://wikilayer.org/mcp` for
+  wikilayer.org), and the server, not wlget, checks it. The steps:
+  1. Read a page with wlget as usual. A page in a wiki with rules is refused
+     with 403; so is any page while the server's own manual wiki, which it
+     applies to every signed-in reader, has rules. wlget prints the server's
+     explanation on standard error and exits with 1. It names the MCP calls to
+     make, such as `get_page_markdown(wiki_id=7, special_role='rules')`.
+  2. Make each named call from an MCP client signed in to that server, such
+     as an AI agent with the Wikilayer connector; wlget cannot make MCP calls.
+     The call returns the rules whole and, in its
+     `rules_read_and_agreed_for_this_wiki` field, one number. Passing that
+     number states that you read the rules and undertake to follow them. Reuse
+     it for up to two hours; after that the server refuses it with the same
+     403, and you make the call again.
+  3. Pass every number the refusal asked for, separated by commas, before the
+     address on each run: `wlget -rules-read-and-agreed 12345678,87654321
+     <address>`.
+  wlget adds them to the page address as the `rules_read_and_agreed` query
+  parameter. Chat addresses are not bound by rules and get nothing.
+  wikilayer.org checks the numbers from 2026-11-18, and so does a self-hosted
+  server from the release after Wikilayer 1.2.0.
 
 ### Removed
 
-- `-agree` and the values wlget printed after reading a `rules.md` address.
-  Those values were made and checked by wlget alone, so the server never saw
-  them. Before: `wlget <rules.md address>`, then `wlget -agree <value> <page>`.
-  Now: the MCP call above, then `wlget -rules-read-and-agreed <value> <page>`.
-  Upgrade together with the server that checks signatures: older servers
-  ignore the values, and wlget 0.9 cannot read from newer ones on a wiki with
-  rules. The `rules` folder that wlget 0.9 left in its cache folder
+- `-agree` and the numbers wlget printed after reading a `rules.md` address.
+  wlget made and checked those numbers itself, so the server never saw them
+  and any other client read the same pages unchecked. Before:
+  `wlget <rules.md address>`, then `wlget -agree <number> <page>`. Now: the MCP
+  call above, then `wlget -rules-read-and-agreed <number> <page>`. Run with
+  `-agree`, wlget 0.10 stops with `flag provided but not defined: -agree`.
+  wlget 0.9 against a server that checks gets 403 on every wiki with rules;
+  wikis without rules read as before with either version. A server of
+  Wikilayer 1.2.0 or older ignores the numbers and serves pages without any
+  check. The `rules` folder that wlget 0.9 left in its cache folder
   (`~/Library/Caches/wlget/rules` on a Mac, `~/.cache/wlget/rules` on Linux)
   is no longer read and can be deleted.
 
