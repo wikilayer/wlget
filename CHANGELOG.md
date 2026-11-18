@@ -3,6 +3,17 @@
 Notable changes to `wlget` are documented here in the format of
 [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.10.1 - 2026-11-19
+
+### Changed
+
+- Dependencies updated: `golang.org/x/net` 0.62.0, `golang.org/x/oauth2`
+  0.38.0, `github.com/gofrs/flock` 0.13.2. Two of their fixes reach wlget:
+  signing in from another device no longer crashes when the server sends an
+  invalid polling interval, and waiting for another wlget's sign-in lock
+  stops cleanly when interrupted. Nothing else changes; install the new
+  version and use it as before.
+
 ## 0.10.0 - 2026-11-18
 
 ### Changed
